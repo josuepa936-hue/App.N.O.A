@@ -1,0 +1,25 @@
+{
+  "name": "NOA — IA de Estudio",
+  "short_name": "NOA",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "description": "Asistente académico con voz, EXCOBA, guías, flashcards, simulacros y conexión con Ollama/OpenAI.",
+  "icons": [
+    {
+      "src": "./icons/noa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/noa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
