@@ -98,6 +98,319 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
   .install-btn{display:inline-flex}
 }
 
+/* =====================================
+   NOA — FLASHCARDS PREMIUM
+===================================== */
+
+.fc-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:18px;
+  margin-bottom:20px;
+}
+
+.fc-header h2{
+  margin:3px 0 4px;
+  font-size:28px;
+}
+
+.fc-header p{
+  margin:0;
+  color:var(--muted);
+}
+
+.fc-eyebrow{
+  color:var(--accent);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:1.5px;
+}
+
+.fc-stats{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:12px;
+  margin-bottom:16px;
+}
+
+.fc-stat{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:14px;
+}
+
+.fc-stat span{
+  display:block;
+  font-size:25px;
+  font-weight:800;
+}
+
+.fc-stat small{
+  color:var(--muted);
+}
+
+.fc-review{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:20px;
+  min-height:390px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding:22px;
+  box-shadow:var(--shadow);
+}
+
+.fc-empty{
+  text-align:center;
+  max-width:420px;
+  margin:auto;
+}
+
+.fc-empty-icon{
+  width:64px;
+  height:64px;
+  display:grid;
+  place-items:center;
+  margin:0 auto 15px;
+  border-radius:18px;
+  background:var(--panel2);
+  color:var(--accent);
+  font-size:28px;
+}
+
+.fc-empty h3{
+  font-size:22px;
+  margin-bottom:7px;
+}
+
+.fc-empty p{
+  color:var(--muted);
+  line-height:1.5;
+}
+
+.fc-start{
+  margin-top:10px;
+}
+
+.fc-session-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:15px;
+}
+
+.fc-counter{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.fc-topic{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid var(--line);
+  background:var(--panel2);
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:11px;
+}
+
+.fc-progress{
+  height:5px;
+  background:#0b1018;
+  border-radius:100px;
+  overflow:hidden;
+  margin-bottom:22px;
+}
+
+.fc-progress > div{
+  height:100%;
+  background:var(--accent);
+  border-radius:100px;
+  transition:width .3s ease;
+}
+
+.fc-card{
+  position:relative;
+  background:linear-gradient(
+    145deg,
+    #151e2d,
+    #0c121c
+  );
+  border:1px solid #2a374d;
+  border-radius:22px;
+  min-height:250px;
+  padding:30px 24px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  transition:
+    transform .25s ease,
+    border-color .25s ease;
+}
+
+.fc-card:hover{
+  border-color:#425a82;
+}
+
+.fc-question{
+  font-size:22px;
+  font-weight:700;
+  line-height:1.45;
+  max-width:720px;
+}
+
+.fc-answer-label{
+  color:var(--accent);
+  font-size:11px;
+  font-weight:800;
+  letter-spacing:1.4px;
+  margin-bottom:15px;
+}
+
+.fc-answer{
+  font-size:18px;
+  line-height:1.65;
+  max-width:720px;
+}
+
+.fc-reveal{
+  animation:fcReveal .28s ease;
+}
+
+@keyframes fcReveal{
+  from{
+    opacity:0;
+    transform:translateY(6px);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0);
+  }
+}
+
+.fc-actions{
+  display:flex;
+  justify-content:center;
+  gap:9px;
+  flex-wrap:wrap;
+  margin-top:20px;
+}
+
+.fc-rating{
+  min-width:112px;
+}
+
+.fc-again{
+  border-color:rgba(255,123,123,.35);
+}
+
+.fc-hard{
+  border-color:rgba(255,201,104,.35);
+}
+
+.fc-good{
+  border-color:rgba(99,212,154,.35);
+}
+
+.fc-easy{
+  background:var(--accent);
+  color:#071022;
+  border-color:transparent;
+  font-weight:700;
+}
+
+.fc-bank{
+  margin-top:18px;
+}
+
+.fc-bank-header h3{
+  margin-bottom:4px;
+}
+
+.fc-bank-header p{
+  margin-top:0;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.fc-list-item{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:14px;
+  align-items:center;
+  padding:13px 4px;
+  border-bottom:1px solid var(--line);
+}
+
+.fc-list-question{
+  font-weight:600;
+  margin-bottom:4px;
+}
+
+.fc-list-meta{
+  color:var(--muted);
+  font-size:11px;
+}
+
+@media(max-width:700px){
+
+  .fc-header{
+    flex-direction:column;
+  }
+
+  .fc-header .btn{
+    width:100%;
+  }
+
+  .fc-stats{
+    grid-template-columns:repeat(3,1fr);
+  }
+
+  .fc-stat{
+    padding:11px;
+  }
+
+  .fc-stat span{
+    font-size:21px;
+  }
+
+  .fc-stat small{
+    font-size:10px;
+  }
+
+  .fc-review{
+    min-height:420px;
+    padding:15px;
+  }
+
+  .fc-card{
+    min-height:270px;
+    padding:24px 17px;
+  }
+
+  .fc-question{
+    font-size:20px;
+  }
+
+  .fc-answer{
+    font-size:16px;
+  }
+
+  .fc-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+  }
+
+  .fc-rating{
+    min-width:0;
+  }
+}
+  
 </style>
 
 <link rel="manifest" href="./manifest.webmanifest">
@@ -160,10 +473,65 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
   </section>
 
   <section id="flashcards" class="section">
-    <div class="row" style="margin-bottom:16px"><button class="btn primary" onclick="openFlashModal()">+ Crear flashcard</button><button class="btn good" onclick="startReview()">Repasar pendientes</button></div>
-    <div class="card" id="reviewBox"><h2>Repetición espaciada</h2><p class="muted">Crea tarjetas y NOA programará automáticamente el siguiente repaso.</p></div>
-    <div class="card" style="margin-top:16px"><h3>Banco de flashcards</h3><div id="flashList"></div></div>
-  </section>
+
+  <div class="fc-header">
+    <div>
+      <div class="fc-eyebrow">NOA · REPASO ACTIVO</div>
+      <h2>Flashcards</h2>
+      <p>Recupera la información antes de verla.</p>
+    </div>
+
+    <button class="btn primary" onclick="openFlashModal()">
+      + Nueva tarjeta
+    </button>
+  </div>
+
+  <div class="fc-stats">
+    <div class="fc-stat">
+      <span id="fcTotal">0</span>
+      <small>Tarjetas</small>
+    </div>
+
+    <div class="fc-stat">
+      <span id="fcDue">0</span>
+      <small>Pendientes</small>
+    </div>
+
+    <div class="fc-stat">
+      <span id="fcMastered">0</span>
+      <small>Dominadas</small>
+    </div>
+  </div>
+
+  <div id="reviewBox" class="fc-review">
+
+    <div class="fc-empty">
+      <div class="fc-empty-icon">◫</div>
+      <h3>Listo para repasar</h3>
+      <p>
+        NOA seleccionará las tarjetas que necesitan recuperación.
+      </p>
+
+      <button class="btn primary fc-start"
+              onclick="startReview()">
+        Comenzar repaso
+      </button>
+    </div>
+
+  </div>
+
+  <div class="card fc-bank">
+    <div class="fc-bank-header">
+      <div>
+        <h3>Banco de tarjetas</h3>
+        <p>Todas tus flashcards guardadas.</p>
+      </div>
+    </div>
+
+    <div id="flashList"></div>
+  </div>
+
+</section>
 
   <section id="exam" class="section">
     <div class="grid grid2">
@@ -464,13 +832,388 @@ function renderSelects(){
 }
 function openFlashModal(){openModal('flashModal')}
 function addFlashcard(){let tid=document.getElementById('flashTopic').value,f=document.getElementById('flashFront').value.trim(),b=document.getElementById('flashBack').value.trim();if(!f||!b)return toast('Completa pregunta y respuesta');db.cards.push({id:uid(),topicId:tid,front:f,back:b,ease:2.5,interval:0,reps:0,due:new Date().toISOString()});act('Flashcard creada');document.getElementById('flashFront').value='';document.getElementById('flashBack').value='';closeModal('flashModal');save()}
-function renderFlashList(){let e=document.getElementById('flashList');e.innerHTML=db.cards.length?`<table><tr><th>Pregunta</th><th>Tema</th><th>Próximo repaso</th><th></th></tr>${db.cards.map(c=>`<tr><td>${esc(c.front).slice(0,90)}</td><td>${esc(topicBy(c.topicId)?.name||'—')}</td><td>${fmtDate(c.due)}</td><td><button class="btn" onclick="delCard('${c.id}')">×</button></td></tr>`).join('')}</table>`:'<p class="muted">Sin flashcards.</p>'}
-function delCard(id){db.cards=db.cards.filter(c=>c.id!==id);save()}
-function startReview(){reviewQueue=dueCards();reviewIndex=0;if(!reviewQueue.length)return toast('No hay tarjetas pendientes');renderReview()}
-function renderReview(){let b=document.getElementById('reviewBox');if(reviewIndex>=reviewQueue.length){b.innerHTML='<h2>Repaso terminado</h2><p>Buen trabajo. NOA ya reprogramó tus tarjetas.</p>';save();return}let c=reviewQueue[reviewIndex];b.innerHTML=`<div class="small">${reviewIndex+1}/${reviewQueue.length} · ${esc(topicBy(c.topicId)?.name||'Sin tema')}</div><div class="flash">${esc(c.front)}</div><div class="row" style="justify-content:center"><button class="btn primary" onclick="showBack()">Mostrar respuesta</button></div>`}
-function showBack(){let c=reviewQueue[reviewIndex],b=document.getElementById('reviewBox');b.innerHTML=`<div class="small">${reviewIndex+1}/${reviewQueue.length}</div><div class="flash"><div><b>${esc(c.front)}</b><hr style="border-color:var(--line)"><div>${esc(c.back)}</div></div></div><div class="row" style="justify-content:center"><button class="btn bad" onclick="rateCard(1)">Otra vez</button><button class="btn" onclick="rateCard(2)">Difícil</button><button class="btn good" onclick="rateCard(4)">Bien</button><button class="btn primary" onclick="rateCard(5)">Fácil</button></div>`}
-function rateCard(q){let c=reviewQueue[reviewIndex],t=topicBy(c.topicId);if(q<3){c.reps=0;c.interval=1}else{c.interval=c.reps===0?1:c.reps===1?6:Math.max(1,Math.round(c.interval*c.ease));c.reps++}c.ease=Math.max(1.3,c.ease+(0.1-(5-q)*(0.08+(5-q)*0.02)));c.due=new Date(Date.now()+c.interval*86400000).toISOString();if(t){t.attempts=(t.attempts||0)+1;if(q>=3)t.correct=(t.correct||0)+1;t.lastSeen=new Date().toISOString()}reviewIndex++;renderReview()}
+function renderFlashList(){
 
+  const total = db.cards.length;
+  const due = dueCards().length;
+
+  const mastered = db.cards.filter(
+    c => (c.reps || 0) >= 3 && (c.ease || 0) >= 2.3
+  ).length;
+
+  const totalEl = document.getElementById('fcTotal');
+  const dueEl = document.getElementById('fcDue');
+  const masteredEl = document.getElementById('fcMastered');
+
+  if(totalEl) totalEl.textContent = total;
+  if(dueEl) dueEl.textContent = due;
+  if(masteredEl) masteredEl.textContent = mastered;
+
+  const e = document.getElementById('flashList');
+
+  if(!e) return;
+
+  if(!db.cards.length){
+    e.innerHTML = `
+      <p class="muted">
+        Todavía no tienes flashcards.
+      </p>
+    `;
+    return;
+  }
+
+  e.innerHTML = db.cards.map(c => {
+
+    const topic = topicBy(c.topicId)?.name || 'Sin tema';
+
+    const status =
+      (c.reps || 0) >= 3
+      ? 'Dominada'
+      : new Date(c.due || 0) <= new Date()
+        ? 'Pendiente'
+        : 'Programada';
+
+    return `
+      <div class="fc-list-item">
+
+        <div>
+          <div class="fc-list-question">
+            ${esc(c.front)}
+          </div>
+
+          <div class="fc-list-meta">
+            ${esc(topic)}
+            · ${status}
+            · repeticiones ${c.reps || 0}
+          </div>
+        </div>
+
+        <button
+          class="btn"
+          onclick="delCard('${c.id}')">
+          ×
+        </button>
+
+      </div>
+    `;
+
+  }).join('');
+}
+
+
+function delCard(id){
+
+  db.cards = db.cards.filter(c => c.id !== id);
+
+  save();
+
+  toast('Flashcard eliminada');
+}
+
+
+function startReview(){
+
+  reviewQueue = dueCards();
+
+  /*
+    Primero muestra las tarjetas con menos
+    repeticiones para priorizar debilidades.
+  */
+
+  reviewQueue.sort(
+    (a,b) => (a.reps || 0) - (b.reps || 0)
+  );
+
+  reviewIndex = 0;
+
+  if(!reviewQueue.length){
+
+    document.getElementById('reviewBox').innerHTML = `
+      <div class="fc-empty">
+        <div class="fc-empty-icon">✓</div>
+
+        <h3>Repaso completado</h3>
+
+        <p>
+          No tienes flashcards pendientes.
+          NOA te avisará cuando toque recuperarlas.
+        </p>
+      </div>
+    `;
+
+    return;
+  }
+
+  renderReview();
+}
+
+
+function renderReview(){
+
+  const box = document.getElementById('reviewBox');
+
+  if(reviewIndex >= reviewQueue.length){
+
+    box.innerHTML = `
+      <div class="fc-empty">
+
+        <div class="fc-empty-icon">✓</div>
+
+        <h3>Sesión terminada</h3>
+
+        <p>
+          Completaste ${reviewQueue.length}
+          flashcards.
+        </p>
+
+        <button
+          class="btn primary"
+          onclick="startReview()">
+          Revisar pendientes
+        </button>
+
+      </div>
+    `;
+
+    save();
+
+    return;
+  }
+
+  const c = reviewQueue[reviewIndex];
+
+  const progress =
+    ((reviewIndex) / reviewQueue.length) * 100;
+
+  const topic =
+    topicBy(c.topicId)?.name || 'Sin tema';
+
+  box.innerHTML = `
+
+    <div class="fc-session-top">
+
+      <div class="fc-topic">
+        ${esc(topic)}
+      </div>
+
+      <div class="fc-counter">
+        ${reviewIndex + 1}
+        /
+        ${reviewQueue.length}
+      </div>
+
+    </div>
+
+
+    <div class="fc-progress">
+      <div style="width:${progress}%"></div>
+    </div>
+
+
+    <div class="fc-card">
+
+      <div class="fc-question">
+        ${esc(c.front)}
+      </div>
+
+    </div>
+
+
+    <div class="fc-actions">
+
+      <button
+        class="btn primary"
+        onclick="showBack()">
+        Ver respuesta
+      </button>
+
+    </div>
+
+  `;
+}
+
+
+function showBack(){
+
+  const c = reviewQueue[reviewIndex];
+
+  const box = document.getElementById('reviewBox');
+
+  const topic =
+    topicBy(c.topicId)?.name || 'Sin tema';
+
+  const progress =
+    ((reviewIndex + 1) / reviewQueue.length) * 100;
+
+  box.innerHTML = `
+
+    <div class="fc-session-top">
+
+      <div class="fc-topic">
+        ${esc(topic)}
+      </div>
+
+      <div class="fc-counter">
+        ${reviewIndex + 1}
+        /
+        ${reviewQueue.length}
+      </div>
+
+    </div>
+
+
+    <div class="fc-progress">
+      <div style="width:${progress}%"></div>
+    </div>
+
+
+    <div class="fc-card fc-reveal">
+
+      <div>
+
+        <div class="fc-answer-label">
+          RESPUESTA
+        </div>
+
+        <div class="fc-answer">
+          ${esc(c.back)}
+        </div>
+
+      </div>
+
+    </div>
+
+
+    <div class="fc-actions">
+
+      <button
+        class="btn fc-rating fc-again"
+        onclick="rateCard(1)">
+        Otra vez
+      </button>
+
+      <button
+        class="btn fc-rating fc-hard"
+        onclick="rateCard(2)">
+        Difícil
+      </button>
+
+      <button
+        class="btn fc-rating fc-good"
+        onclick="rateCard(4)">
+        Bien
+      </button>
+
+      <button
+        class="btn fc-rating fc-easy"
+        onclick="rateCard(5)">
+        Fácil
+      </button>
+
+    </div>
+
+  `;
+}
+
+
+function rateCard(q){
+
+  const c = reviewQueue[reviewIndex];
+
+  const t = topicBy(c.topicId);
+
+  /*
+    Algoritmo de repetición espaciada
+    que NOA ya utilizaba.
+  */
+
+  if(q < 3){
+
+    c.reps = 0;
+    c.interval = 1;
+
+  }else{
+
+    if(c.reps === 0){
+      c.interval = 1;
+    }
+
+    else if(c.reps === 1){
+      c.interval = 6;
+    }
+
+    else{
+      c.interval =
+        Math.max(
+          1,
+          Math.round(c.interval * c.ease)
+        );
+    }
+
+    c.reps++;
+  }
+
+
+  c.ease = Math.max(
+    1.3,
+    c.ease +
+    (
+      0.1 -
+      (5-q) *
+      (
+        0.08 +
+        (5-q)*0.02
+      )
+    )
+  );
+
+
+  c.due = new Date(
+    Date.now() +
+    c.interval * 86400000
+  ).toISOString();
+
+
+  /*
+    Actualiza dominio del tema.
+  */
+
+  if(t){
+
+    t.attempts =
+      (t.attempts || 0) + 1;
+
+    if(q >= 3){
+
+      t.correct =
+        (t.correct || 0) + 1;
+    }
+
+    t.lastSeen =
+      new Date().toISOString();
+  }
+
+
+  /*
+    Guardado inmediato.
+    Así no pierdes progreso si cierras
+    la aplicación a mitad del repaso.
+  */
+
+  localStorage.setItem(
+    KEY,
+    JSON.stringify(db)
+  );
+
+
+  reviewIndex++;
+
+  renderReview();
+
+  renderFlashList();
+}
+
+  
 function openQuestionModal(){openModal('questionModal')}
 function addQuestion(){let text=document.getElementById('qText').value.trim();let opts=['qA','qB','qC','qD'].map(id=>document.getElementById(id).value.trim());if(!text||opts.some(x=>!x))return toast('Completa la pregunta y opciones');db.questions.push({id:uid(),topicId:document.getElementById('qTopic').value,text,options:opts,correct:'ABCD'.indexOf(document.getElementById('qCorrect').value),explain:document.getElementById('qExplain').value.trim()});act('Pregunta añadida al banco');closeModal('questionModal');save()}
 function startExam(){let sid=document.getElementById('examSubject').value,count=parseInt(document.getElementById('examCount').value);let pool=db.questions.filter(q=>!sid||topicBy(q.topicId)?.subjectId===sid);if(!pool.length)return toast('No hay preguntas para esa selección');pool.sort((a,b)=>priority(topicBy(b.topicId)||{attempts:0,correct:0})-priority(topicBy(a.topicId)||{attempts:0,correct:0}));let top=pool.slice(0,Math.min(pool.length,Math.max(count*2,count)));shuffle(top);examQueue=top.slice(0,count);examIndex=0;examScore=0;renderExam()}
