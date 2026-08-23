@@ -504,7 +504,7 @@ ${context||'Sin contexto recuperado.'}
 PREGUNTA:
 ${q}`}
     ]);
-    addMsg('noa',answer);speak(answer.slice(0,700));return;
+    addMsg('noa',answer);speak(answer);return;
   }catch(e){
     addMsg('noa',offlineCoach(q)+'\n\n[IA no disponible: '+e.message+']');
   }
@@ -661,14 +661,68 @@ function normalizeText(s){
   return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[¿?¡!,.;:]/g,' ').replace(/\s+/g,' ').trim();
 }
 function speak(text){
-  if(!document.getElementById('speakReplies')?.checked || !('speechSynthesis' in window)) return;
-  speakingNow=true;
+   if (
+    !document.getElementById('speakReplies')?.checked ||
+    !('speechSynthesis' in window)
+  ) return;
+
   speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(String(text).slice(0,900));
-  u.lang='es-MX'; u.rate=1.02; u.pitch=1;
-  u.onend=()=>{speakingNow=false};
-  u.onerror=()=>{speakingNow=false};
-  speechSynthesis.speak(u);
+
+  const raw = String(text || '').trim();
+  if (!raw) return;
+
+  // Divide respuestas largas para que Android no corte la voz.
+  const sentences =
+    raw.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [raw];
+
+  const chunks = [];
+  let current = '';
+
+  for (const sentence of sentences) {
+    const next = (current + ' ' + sentence).trim();
+
+    if (next.length > 220 && current) {
+      chunks.push(current.trim());
+      current = sentence.trim();
+    } else {
+      current = next;
+    }
+  }
+
+  if (current.trim()) {
+    chunks.push(current.trim());
+  }
+
+  let index = 0;
+  speakingNow = true;
+
+  function speakNext() {
+    if (index >= chunks.length) {
+      speakingNow = false;
+      return;
+    }
+
+    const voice = new SpeechSynthesisUtterance(chunks[index]);
+
+    voice.lang = 'es-MX';
+    voice.rate = 1.02;
+    voice.pitch = 1;
+    voice.volume = 1;
+
+    voice.onend = () => {
+      index++;
+      setTimeout(speakNext, 80);
+    };
+
+    voice.onerror = (event) => {
+      console.error('Error de voz NOA:', event);
+      speakingNow = false;
+    };
+
+    speechSynthesis.speak(voice);
+  }
+
+  speakNext();
 }
 function initVoice(){
   const info=document.getElementById('recognitionInfo');
