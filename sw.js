@@ -1,9 +1,10 @@
-const CACHE='noa-mobile-v6-6';
+const CACHE='noa-mobile-v6-7';
 const ASSETS=[
   './',
   './index.html',
   './manifest.webmanifest',
   './excoba_master.js',
+  './excoba_patch_v3.js',
   './noa-192.png',
   './noa-512.png'
 ];
