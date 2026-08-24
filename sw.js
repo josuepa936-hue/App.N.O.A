@@ -5,6 +5,7 @@ const ASSETS=[
   './manifest.webmanifest',
   './excoba_master.js',
   './excoba_patch_v3.js',
+  './excoba_patch_v4.js',
   './noa-192.png',
   './noa-512.png'
 ];
