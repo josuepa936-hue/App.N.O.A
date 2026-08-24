@@ -1,0 +1,511 @@
+/* =========================================================
+   NOA EXCOBA PATCH v3
+   - Habilita las 9 materias oficiales del EXCOBA para Medicina
+   - Corrige la generación de cuestionarios con Workers AI
+   - Evita bucles infinitos por preguntas duplicadas
+   - Hace más tolerante la validación de syllabus_code
+   - Mantiene el Temario Maestro como límite de alcance
+   ========================================================= */
+
+(() => {
+  const SUBJECTS_V3 = [
+    {label:'Primaria · Español', value:'EXCOBA Primaria · Español'},
+    {label:'Primaria · Matemáticas', value:'EXCOBA Primaria · Matemáticas'},
+    {label:'Secundaria · Español', value:'EXCOBA Secundaria · Español'},
+    {label:'Secundaria · Matemáticas', value:'EXCOBA Secundaria · Matemáticas'},
+    {label:'Secundaria · Ciencias naturales', value:'EXCOBA Secundaria · Ciencias naturales'},
+    {label:'Secundaria · Ciencias sociales', value:'EXCOBA Secundaria · Ciencias sociales'},
+    {label:'Medicina · Matemáticas para estadística', value:'EXCOBA Medicina · Matemáticas para estadística'},
+    {label:'Medicina · Biología', value:'EXCOBA Medicina · Biología'},
+    {label:'Medicina · Química', value:'EXCOBA Medicina · Química'}
+  ];
+
+  function n(v){
+    return String(v ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g,' ')
+      .trim();
+  }
+
+  function safeToast(msg){
+    try{ toast(msg); }catch{ console.log(msg); }
+  }
+
+  function setStatus(msg){
+    const e=document.getElementById('excobaMaterialStatus');
+    if(e)e.textContent=msg || '';
+  }
+
+  function api(){
+    return window.NOA_EXCOBA_MASTER || null;
+  }
+
+  function master(){
+    return api()?.get?.() || null;
+  }
+
+  function canonicalSubject(target){
+    const x=n(target);
+
+    const exact=SUBJECTS_V3.find(s=>n(s.value)===x || n(s.label)===x);
+    if(exact)return exact.value;
+
+    if(x.includes('primaria') && x.includes('espanol')) return 'EXCOBA Primaria · Español';
+    if(x.includes('primaria') && (x.includes('matematica') || x.includes('matematicas'))) return 'EXCOBA Primaria · Matemáticas';
+
+    if(x.includes('secundaria') && x.includes('espanol')) return 'EXCOBA Secundaria · Español';
+    if(x.includes('secundaria') && (x.includes('matematica') || x.includes('matematicas'))) return 'EXCOBA Secundaria · Matemáticas';
+    if(x.includes('ciencias naturales') || x.includes('naturales')) return 'EXCOBA Secundaria · Ciencias naturales';
+    if(x.includes('ciencias sociales') || x.includes('sociales')) return 'EXCOBA Secundaria · Ciencias sociales';
+
+    if(x.includes('estadistica')) return 'EXCOBA Medicina · Matemáticas para estadística';
+    if(x.includes('biologia')) return 'EXCOBA Medicina · Biología';
+    if(x.includes('quimica')) return 'EXCOBA Medicina · Química';
+
+    return null;
+  }
+
+  function itemsForSubject(target){
+    const m=master();
+    if(!m?.items?.length)return [];
+
+    const subject=canonicalSubject(target);
+    if(!subject)return [];
+
+    return m.items.filter(item=>item.subject===subject);
+  }
+
+  function parseJSONLoose(raw){
+    const cleaned=String(raw ?? '')
+      .replace(/```json/gi,'')
+      .replace(/```/g,'')
+      .trim();
+
+    try{
+      const j=JSON.parse(cleaned);
+      if(Array.isArray(j))return j;
+      if(Array.isArray(j?.questions))return j.questions;
+      if(Array.isArray(j?.items))return j.items;
+    }catch{}
+
+    const a=cleaned.indexOf('[');
+    const b=cleaned.lastIndexOf(']');
+    if(a>=0 && b>a){
+      try{
+        const j=JSON.parse(cleaned.slice(a,b+1));
+        if(Array.isArray(j))return j;
+      }catch{}
+    }
+
+    const o=cleaned.indexOf('{');
+    const z=cleaned.lastIndexOf('}');
+    if(o>=0 && z>o){
+      try{
+        const j=JSON.parse(cleaned.slice(o,z+1));
+        if(Array.isArray(j?.questions))return j.questions;
+        if(Array.isArray(j?.items))return j.items;
+      }catch{}
+    }
+
+    throw new Error('La IA no devolvió JSON utilizable');
+  }
+
+  function tokenScore(a,b){
+    const A=new Set(n(a).split(' ').filter(w=>w.length>3));
+    const B=new Set(n(b).split(' ').filter(w=>w.length>3));
+    let score=0;
+    for(const w of A)if(B.has(w))score++;
+    return score;
+  }
+
+  function resolveItem(q,allowedItems){
+    if(!allowedItems.length)return null;
+
+    const byCode=new Map(
+      allowedItems.map(i=>[
+        String(i.code).trim().replace(/\.$/,''),
+        i
+      ])
+    );
+
+    const rawCode=String(
+      q.syllabus_code ??
+      q.syllabusCode ??
+      q.code ??
+      ''
+    ).trim().replace(/\.$/,'');
+
+    if(rawCode && byCode.has(rawCode)){
+      return byCode.get(rawCode);
+    }
+
+    // Algunos modelos devuelven un padre o agregan espacios al código.
+    const compact=rawCode.replace(/\s+/g,'');
+    if(compact){
+      const exact=allowedItems.find(i=>
+        String(i.code).replace(/\s+/g,'').replace(/\.$/,'')===compact
+      );
+      if(exact)return exact;
+    }
+
+    // Si el modelo devolvió nombre de tema en vez de un código exacto,
+    // se relaciona con el punto oficial más parecido.
+    const hint=[
+      q.topic,
+      q.tema,
+      q.subtopic,
+      q.subtema,
+      q.question,
+      q.pregunta
+    ].filter(Boolean).join(' ');
+
+    if(hint){
+      const ranked=allowedItems
+        .map(item=>({
+          item,
+          score:
+            tokenScore(hint,item.title)*3 +
+            tokenScore(hint,item.focus)
+        }))
+        .sort((a,b)=>b.score-a.score);
+
+      if(ranked[0]?.score>0)return ranked[0].item;
+    }
+
+    return null;
+  }
+
+  function pickBlueprint(items,batchIndex,size=8){
+    if(items.length<=size)return [...items];
+
+    const start=(batchIndex*size)%items.length;
+    const out=[];
+    for(let i=0;i<size;i++){
+      out.push(items[(start+i)%items.length]);
+    }
+    return out;
+  }
+
+  async function generateQuestionBatchV3(target,count,batchIndex=0){
+    const subject=canonicalSubject(target);
+    if(!subject)throw new Error('Materia no reconocida');
+
+    const items=itemsForSubject(subject);
+    if(!items.length)throw new Error('La materia no tiene puntos detectados en el Temario Maestro');
+
+    const blueprint=pickBlueprint(items,batchIndex,Math.min(10,Math.max(6,count*2)));
+
+    const allowedText=blueprint
+      .map(x=>`- ${x.code} | ${x.title}: ${x.focus}`)
+      .join('\n');
+
+    const raw=await callAI([
+      {
+        role:'system',
+        content:
+`Eres el motor de evaluación de NOA para EXCOBA UAQ.
+Devuelve ÚNICAMENTE JSON válido.
+El listado proporcionado delimita el alcance oficial.
+Genera reactivos claros de opción múltiple, con una sola respuesta correcta.
+Los distractores deben ser plausibles y del mismo nivel conceptual.
+Evita pistas por longitud, opciones absurdas, ambigüedad y preguntas repetidas.
+No introduzcas temas fuera del listado.`
+      },
+      {
+        role:'user',
+        content:
+`MATERIA:
+${subject}
+
+GENERA:
+${count} reactivos.
+
+FORMATO EXACTO:
+[
+  {
+    "question":"...",
+    "options":["...","...","...","..."],
+    "correct":0,
+    "explanation":"...",
+    "topic":"...",
+    "syllabus_code":"código exacto"
+  }
+]
+
+REGLAS:
+- "correct" debe ser 0, 1, 2 o 3.
+- Usa exactamente uno de los syllabus_code listados.
+- Cada reactivo debe evaluar comprensión, aplicación o razonamiento cuando sea posible.
+- La explicación debe justificar la respuesta correcta.
+- No uses "todas las anteriores" ni "ninguna de las anteriores".
+- No escribas texto fuera del JSON.
+
+PUNTOS OFICIALES PERMITIDOS:
+${allowedText}`
+      }
+    ],{
+      temperature:0.28
+    });
+
+    const data=parseJSONLoose(raw);
+    const out=[];
+
+    for(const q of data){
+      const question=String(q.question ?? q.pregunta ?? '').trim();
+      const options=Array.isArray(q.options)
+        ? q.options.map(x=>String(x).trim())
+        : Array.isArray(q.opciones)
+          ? q.opciones.map(x=>String(x).trim())
+          : [];
+
+      let correct=Number(
+        q.correct ??
+        q.correct_index ??
+        q.respuesta_correcta
+      );
+
+      if(!Number.isInteger(correct) && typeof q.correct==='string'){
+        const letter=String(q.correct).trim().toUpperCase();
+        correct='ABCD'.indexOf(letter);
+      }
+
+      const item=resolveItem(q,blueprint);
+
+      if(!question)continue;
+      if(options.length!==4 || options.some(x=>!x))continue;
+      if(!Number.isInteger(correct) || correct<0 || correct>3)continue;
+      if(!item)continue;
+
+      const topic=db.topics.find(t=>t.syllabusCode===item.code);
+
+      out.push({
+        id:uid(),
+        topicId:topic?.id || '',
+        text:question,
+        options,
+        correct,
+        explain:String(q.explanation ?? q.explicacion ?? '').trim(),
+        source:`Guía temática EXCOBA UAQ 2026-2 - PDF oficial · ${item.code} · PDF pág. ${item.page}`,
+        syllabusCode:item.code,
+        sourcePage:item.page,
+        masterSyllabus:'uaq-excoba-2026-2-medicina'
+      });
+
+      if(out.length>=count)break;
+    }
+
+    return out;
+  }
+
+  async function generateQuestionsV3(target,count=5){
+    const subject=canonicalSubject(target);
+    if(!subject)throw new Error('Materia no reconocida');
+
+    const wanted=Math.max(1,Math.min(30,Number(count)||5));
+    const all=[];
+    const seen=new Set();
+    let attempt=0;
+
+    // Límite explícito: evita que el cuestionario se quede cargando para siempre.
+    const maxAttempts=Math.max(4,Math.ceil(wanted/3)*3);
+
+    while(all.length<wanted && attempt<maxAttempts){
+      const needed=Math.min(3,wanted-all.length);
+      const batch=await generateQuestionBatchV3(subject,needed,attempt);
+
+      for(const q of batch){
+        const key=n(q.text);
+        if(!key || seen.has(key))continue;
+        seen.add(key);
+        all.push(q);
+        if(all.length>=wanted)break;
+      }
+
+      attempt++;
+    }
+
+    if(!all.length){
+      throw new Error('Workers AI no produjo reactivos válidos. Intenta nuevamente.');
+    }
+
+    return all;
+  }
+
+  async function createQuizV3(target,count=10){
+    const m=master();
+    if(!m)return safeToast('Primero importa el PDF oficial');
+
+    if(db.settings?.aiProvider==='offline'){
+      return safeToast('Activa tu conexión de IA para crear cuestionarios');
+    }
+
+    const subject=canonicalSubject(target);
+    if(!subject)return safeToast('Selecciona una materia válida');
+
+    const btn=document.getElementById('excobaMakeQuizBtn');
+
+    try{
+      if(btn)btn.disabled=true;
+      setStatus(`NOA está construyendo ${count} reactivos de ${subject.replace(/^EXCOBA (Primaria|Secundaria|Medicina) · /,'')}…`);
+
+      const qs=await generateQuestionsV3(subject,count);
+
+      const existing=new Set(db.questions.map(q=>n(q.text)));
+      const fresh=qs.filter(q=>!existing.has(n(q.text)));
+
+      if(!fresh.length){
+        throw new Error('Los reactivos generados ya estaban en el banco. Vuelve a intentarlo para obtener variantes.');
+      }
+
+      db.questions.push(...fresh);
+      act(`${fresh.length} reactivos EXCOBA creados de ${subject}`);
+      save();
+
+      setStatus(`✓ ${fresh.length} reactivos guardados y listos`);
+      safeToast(`${fresh.length} preguntas creadas`);
+
+      beginExamQueue(
+        fresh,
+        `Cuestionario EXCOBA · ${subject.replace(/^EXCOBA (Primaria|Secundaria|Medicina) · /,'')}`
+      );
+
+    }catch(err){
+      console.error('Cuestionario EXCOBA v3:',err);
+      setStatus('Error: '+(err?.message || err));
+      safeToast('No pude crear el cuestionario: '+(err?.message || err));
+    }finally{
+      if(btn)btn.disabled=false;
+    }
+  }
+
+  function upgradeSubjectSelect(){
+    const select=document.getElementById('excobaStudySubject');
+    if(!select)return;
+
+    const current=canonicalSubject(select.value);
+
+    select.innerHTML=`
+      <optgroup label="Competencias básicas · Primaria">
+        ${SUBJECTS_V3.slice(0,2).map(s=>`<option value="${s.value}">${s.label}</option>`).join('')}
+      </optgroup>
+      <optgroup label="Competencias básicas · Secundaria">
+        ${SUBJECTS_V3.slice(2,6).map(s=>`<option value="${s.value}">${s.label}</option>`).join('')}
+      </optgroup>
+      <optgroup label="Especialidad · Medicina">
+        ${SUBJECTS_V3.slice(6).map(s=>`<option value="${s.value}">${s.label}</option>`).join('')}
+      </optgroup>
+    `;
+
+    select.value=current || 'EXCOBA Medicina · Biología';
+  }
+
+  function replaceQuizButton(){
+    const old=document.getElementById('excobaMakeQuizBtn');
+    if(!old || old.dataset.v3==='1')return;
+
+    const fresh=old.cloneNode(true);
+    fresh.dataset.v3='1';
+    old.replaceWith(fresh);
+
+    fresh.addEventListener('click',()=>{
+      const target=document.getElementById('excobaStudySubject')?.value;
+      const count=parseInt(document.getElementById('excobaQuizCount')?.value)||10;
+      createQuizV3(target,count);
+    });
+  }
+
+  function subjectFromCommand(text){
+    const x=n(text);
+
+    if(x.includes('primaria') && x.includes('espanol')) return 'EXCOBA Primaria · Español';
+    if(x.includes('primaria') && x.includes('matemat')) return 'EXCOBA Primaria · Matemáticas';
+
+    if(x.includes('secundaria') && x.includes('espanol')) return 'EXCOBA Secundaria · Español';
+    if(x.includes('secundaria') && x.includes('matemat')) return 'EXCOBA Secundaria · Matemáticas';
+
+    if(x.includes('ciencias naturales') || x.includes('naturales')) return 'EXCOBA Secundaria · Ciencias naturales';
+    if(x.includes('ciencias sociales') || x.includes('sociales')) return 'EXCOBA Secundaria · Ciencias sociales';
+
+    if(x.includes('estadistica')) return 'EXCOBA Medicina · Matemáticas para estadística';
+    if(x.includes('biologia')) return 'EXCOBA Medicina · Biología';
+    if(x.includes('quimica')) return 'EXCOBA Medicina · Química';
+
+    return null;
+  }
+
+  function patchVoiceCommands(){
+    if(typeof window.executeCommand!=='function' || window.executeCommand.__noaV3)return;
+
+    const previous=window.executeCommand;
+
+    const wrapped=function(raw){
+      const text=n(raw);
+      const subject=subjectFromCommand(text);
+
+      if(
+        subject &&
+        /(cuestionario|examen|simulacro)/.test(text) &&
+        /(crea|creame|hazme|genera|prepara|inicia)/.test(text)
+      ){
+        const m=text.match(/(\d{1,2})\s*(preguntas|reactivos)?/);
+        const count=m?Math.min(30,Math.max(1,parseInt(m[1]))):10;
+        createQuizV3(subject,count);
+        return;
+      }
+
+      if(
+        subject &&
+        /(flashcards|tarjetas)/.test(text) &&
+        /(crea|creame|hazme|genera)/.test(text)
+      ){
+        const m=text.match(/(\d{1,2})\s*(flashcards|tarjetas)?/);
+        const count=m?Math.min(30,Math.max(5,parseInt(m[1]))):15;
+        api()?.createFlashcards?.(subject,count);
+        return;
+      }
+
+      return previous(raw);
+    };
+
+    wrapped.__noaV3=true;
+    window.executeCommand=wrapped;
+  }
+
+  function expose(){
+    if(api()){
+      api().createQuiz=createQuizV3;
+      api().generateQuestions=generateQuestionsV3;
+      api().subjects=SUBJECTS_V3.map(x=>x.value);
+    }
+
+    // También corrige cualquier flujo de NOA que use generateAIQuestions().
+    window.generateAIQuestions=generateQuestionsV3;
+    window.NOA_EXCOBA_V3={
+      subjects:SUBJECTS_V3,
+      createQuiz:createQuizV3,
+      generateQuestions:generateQuestionsV3
+    };
+  }
+
+  function init(){
+    if(!api()){
+      setTimeout(init,250);
+      return;
+    }
+
+    upgradeSubjectSelect();
+    replaceQuizButton();
+    patchVoiceCommands();
+    expose();
+
+    console.log('NOA EXCOBA Patch v3 activo · 9 materias + Quiz Engine v3');
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',init,{once:true});
+  }else{
+    init();
+  }
+})();
