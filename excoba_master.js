@@ -415,7 +415,18 @@
       .master-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}
       .master-subject{padding:11px;border:1px solid var(--line);border-radius:12px;background:#0c121c}
       .master-note{margin-top:12px;padding:10px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:12px;line-height:1.5}
-      @media(max-width:800px){.master-grid{grid-template-columns:1fr}.master-upload .btn{flex:1}}
+      .master-tools{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:14px;background:#0c121c}
+      .master-tools-title{font-weight:800;margin-bottom:4px}
+      .master-tools-grid{display:grid;grid-template-columns:1.25fr .75fr .75fr;gap:10px;margin-top:12px}
+      .master-tools-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+      .master-tools-actions .btn{flex:1}
+      .master-live{margin-top:10px;font-size:12px;color:var(--muted);min-height:18px}
+      @media(max-width:800px){
+        .master-grid{grid-template-columns:1fr}
+        .master-upload .btn{flex:1}
+        .master-tools-grid{grid-template-columns:1fr}
+        .master-tools-actions{display:grid;grid-template-columns:1fr}
+      }
     `;
     document.head.appendChild(style);
   }
@@ -449,6 +460,49 @@
       <div id="excobaMasterStatus" class="sourcebox" style="margin-top:12px"></div>
       <div id="excobaMasterDetails" class="master-grid"></div>
 
+      <div class="master-tools" id="excobaStudyTools">
+        <div class="master-tools-title">Crear material desde el temario</div>
+        <div class="small">NOA usa el alcance oficial y Gemma 3:4b para crear material de estudio validado.</div>
+
+        <div class="master-tools-grid">
+          <div class="field">
+            <label>Materia</label>
+            <select id="excobaStudySubject">
+              <option value="Biología">Biología</option>
+              <option value="Química">Química</option>
+              <option value="Matemáticas para estadística">Matemáticas para estadística</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Flashcards</label>
+            <select id="excobaFlashCount">
+              <option value="10">10</option>
+              <option value="15" selected>15</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Cuestionario</label>
+            <select id="excobaQuizCount">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="15">15</option>
+              <option value="20">20</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="master-tools-actions">
+          <button class="btn primary" id="excobaMakeFlashBtn">Crear flashcards</button>
+          <button class="btn" id="excobaMakeQuizBtn">Crear cuestionario</button>
+        </div>
+
+        <div id="excobaMaterialStatus" class="master-live"></div>
+      </div>
+
       <div class="master-note">
         <b>Cómo usa NOA este PDF:</b> el documento oficial define qué temas son evaluables. Gemma puede explicar esos temas usando conocimiento académico, pero NOA no atribuye al PDF datos que el PDF no contiene.
       </div>
@@ -478,7 +532,178 @@
       toast('Materias y temas sincronizados');
     });
 
+    document.getElementById('excobaMakeFlashBtn').addEventListener('click',()=>{
+      const target=document.getElementById('excobaStudySubject').value;
+      const count=parseInt(document.getElementById('excobaFlashCount').value)||15;
+      createMasterFlashcards(target,count);
+    });
+
+    document.getElementById('excobaMakeQuizBtn').addEventListener('click',()=>{
+      const target=document.getElementById('excobaStudySubject').value;
+      const count=parseInt(document.getElementById('excobaQuizCount').value)||10;
+      createMasterQuiz(target,count);
+    });
+
     renderMasterUI();
+  }
+
+  function setMaterialStatus(text){
+    const e=document.getElementById('excobaMaterialStatus');
+    if(e)e.textContent=text||'';
+  }
+
+  async function createMasterFlashcards(target,count=15){
+    const master=getMaster();
+    if(!master) return toast('Primero importa el PDF oficial');
+    if(db.settings.aiProvider==='offline'){
+      return toast('Conecta Ollama Bridge para crear flashcards inteligentes');
+    }
+
+    const items=masterItemsForTarget(target,Math.max(12,Math.min(40,count*2)));
+    if(!items.length) return toast('No encontré esa materia en el temario maestro');
+
+    const allowed=new Map(items.map(x=>[x.code,x]));
+    const created=[];
+    const batchSize=6;
+    const totalBatches=Math.ceil(count/batchSize);
+
+    try{
+      const btn=document.getElementById('excobaMakeFlashBtn');
+      if(btn)btn.disabled=true;
+
+      for(let batch=0;batch<totalBatches;batch++){
+        const needed=Math.min(batchSize,count-created.length);
+        if(needed<=0)break;
+
+        setMaterialStatus(`Gemma está creando flashcards · bloque ${batch+1}/${totalBatches}…`);
+
+        const official=officialContext(target,items.length);
+        const raw=await callAI([
+          {role:'system',content:
+`Eres el motor de flashcards de NOA para EXCOBA UAQ.
+Devuelve SOLO JSON válido, sin Markdown.
+El temario oficial delimita el alcance, pero no es un libro de respuestas.
+Usa conocimiento académico correcto únicamente para desarrollar los temas permitidos.
+Las tarjetas deben promover recuperación activa, comprensión y aplicación.
+Respuestas breves, precisas y autosuficientes.
+Evita preguntas vagas como "explica todo sobre...".
+No introduzcas temas fuera del alcance.`},
+          {role:'user',content:
+`Crea ${needed} flashcards distintas de "${target}".
+
+FORMATO:
+[
+  {
+    "front":"pregunta concreta",
+    "back":"respuesta clara y breve",
+    "syllabus_code":"código exacto permitido",
+    "type":"concepto|comparación|aplicación|error_frecuente"
+  }
+]
+
+REQUISITOS:
+- Usa códigos exactos del alcance oficial.
+- Mezcla recuerdo conceptual con aplicación.
+- No repitas tarjetas ya obvias entre sí.
+- Una tarjeta = una idea principal.
+- La respuesta debe servir para estudiar, no ser una sola palabra.
+
+ALCANCE OFICIAL:
+${official}` }
+        ],{model:db.settings.ollamaModel,temperature:0.32});
+
+        const data=extractJSON(raw);
+        if(!Array.isArray(data))continue;
+
+        for(const f of data){
+          if(created.length>=count)break;
+          const code=String(f.syllabus_code||'').trim();
+          const src=allowed.get(code);
+          if(!src || !f.front || !f.back)continue;
+
+          const front=String(f.front).trim();
+          const back=String(f.back).trim();
+          const duplicate=[...db.cards,...created].some(c=>norm(c.front)===norm(front));
+          if(duplicate)continue;
+
+          const topic=db.topics.find(t=>t.syllabusCode===code);
+          created.push({
+            id:uid(),
+            topicId:topic?.id||'',
+            front,
+            back,
+            ease:2.5,
+            interval:0,
+            reps:0,
+            due:new Date().toISOString(),
+            source:`${MASTER_SOURCE} · ${code} · PDF pág. ${src.page}`,
+            syllabusCode:code,
+            sourcePage:src.page,
+            masterSyllabus:MASTER_ID,
+            cardType:String(f.type||'concepto')
+          });
+        }
+      }
+
+      if(!created.length)throw new Error('Gemma no devolvió flashcards válidas');
+
+      db.cards.push(...created);
+      act(`${created.length} flashcards EXCOBA creadas de ${target}`);
+      save();
+      setMaterialStatus(`✓ ${created.length} flashcards guardadas en tu banco`);
+      toast(`${created.length} flashcards creadas`);
+      page('flashcards','Flashcards');
+      speak(`Listo. Creé ${created.length} flashcards de ${target} basadas en el temario oficial.`);
+    }catch(err){
+      console.error('Flashcards EXCOBA:',err);
+      setMaterialStatus('Error: '+err.message);
+      toast('No pude crear las flashcards: '+err.message);
+    }finally{
+      const btn=document.getElementById('excobaMakeFlashBtn');
+      if(btn)btn.disabled=false;
+    }
+  }
+
+  async function createMasterQuiz(target,count=10){
+    const master=getMaster();
+    if(!master) return toast('Primero importa el PDF oficial');
+    if(db.settings.aiProvider==='offline'){
+      return toast('Conecta Ollama Bridge para crear cuestionarios inteligentes');
+    }
+
+    const btn=document.getElementById('excobaMakeQuizBtn');
+    try{
+      if(btn)btn.disabled=true;
+      setMaterialStatus(`Gemma está construyendo ${count} reactivos de ${target}…`);
+
+      const all=[];
+      const batchSize=5;
+      while(all.length<count){
+        const needed=Math.min(batchSize,count-all.length);
+        const qs=await generateAIQuestions(target,needed);
+        for(const q of qs){
+          const duplicate=[...db.questions,...all].some(x=>norm(x.text)===norm(q.text));
+          if(!duplicate)all.push(q);
+          if(all.length>=count)break;
+        }
+        if(!qs.length)break;
+      }
+
+      if(!all.length)throw new Error('No se generaron reactivos válidos');
+
+      db.questions.push(...all);
+      act(`${all.length} reactivos EXCOBA creados de ${target}`);
+      save();
+      setMaterialStatus(`✓ ${all.length} reactivos guardados y listos para practicar`);
+      toast(`${all.length} preguntas creadas`);
+      beginExamQueue(all,`Cuestionario EXCOBA · ${target}`);
+    }catch(err){
+      console.error('Cuestionario EXCOBA:',err);
+      setMaterialStatus('Error: '+err.message);
+      toast('No pude crear el cuestionario: '+err.message);
+    }finally{
+      if(btn)btn.disabled=false;
+    }
   }
 
   // ---------- Integración con el motor de NOA ----------
@@ -684,7 +909,21 @@ ${official}`;
   executeCommand=function(raw){
     const n=norm(raw);
 
-    if(getMaster() && /(examen|simulacro)/.test(n) && /excoba/.test(n)){
+    if(getMaster() && /(flashcards|tarjetas)/.test(n) && /(crea|creame|hazme|genera)/.test(n)){
+      const m=n.match(/(\d{1,2})\s*(flashcards|tarjetas)?/);
+      const count=m?Math.min(30,Math.max(5,parseInt(m[1]))):15;
+      let target='';
+      if(n.includes('biologia')) target='Biología';
+      else if(n.includes('quimica')) target='Química';
+      else if(n.includes('estadistica') || n.includes('matematicas')) target='Matemáticas para estadística';
+
+      if(target && db.settings.aiProvider!=='offline'){
+        createMasterFlashcards(target,count);
+        return;
+      }
+    }
+
+    if(getMaster() && /(cuestionario|examen|simulacro)/.test(n) && /excoba/.test(n)){
       const m=n.match(/(\d{1,3})\s*(preguntas|reactivos)?/);
       const count=m?Math.min(60,Math.max(1,parseInt(m[1]))):10;
 
@@ -694,7 +933,7 @@ ${official}`;
       else if(n.includes('estadistica') || n.includes('matematicas')) target='Matemáticas para estadística';
 
       if(target && db.settings.aiProvider!=='offline'){
-        smartStartExamForTarget(target,count);
+        createMasterQuiz(target,count);
         return;
       }
     }
@@ -714,6 +953,8 @@ ${official}`;
     get:()=>getMaster(),
     itemsFor:masterItemsForTarget,
     contextFor:officialContext,
+    createFlashcards:createMasterFlashcards,
+    createQuiz:createMasterQuiz,
     sync:()=>{
       const m=getMaster();
       if(m){syncTopicsToNoa(m.items);save();}
