@@ -335,14 +335,17 @@ REGLAS DE DIFICULTAD:
 
 FORMATO EXACTO:
 [
-  {
-    "question":"...",
-    "options":["...","...","...","..."],
-    "correct":0,
-    "explanation":"...",
-    "topic":"...",
-    "syllabus_code":"código exacto"
-  }
+{
+  "question":"...",
+  "options":["...","...","...","..."],
+  "correct":0,
+  "explanation":"...",
+  "topic":"...",
+  "syllabus_code":"código exacto",
+  "difficulty":4,
+  "cognitive_level":"integration",
+  "reasoning_steps":2
+}
 ]
 
 REGLAS:
