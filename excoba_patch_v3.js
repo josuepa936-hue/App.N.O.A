@@ -187,6 +187,53 @@
     }
     return out;
   }
+   function makeBlueprint(index){
+  const cycle = [
+    1,
+    2,2,
+    3,3,3,
+    4,4,4,
+    5
+  ];
+
+  const difficulty = cycle[index % cycle.length];
+
+  const cognitive = {
+    1: "recall",
+    2: "comprehension",
+    3: "application",
+    4: "integration",
+    5: "multi_step"
+  }[difficulty];
+
+  const reasoningSteps = {
+    1: 1,
+    2: 1,
+    3: 2,
+    4: 2,
+    5: 3
+  }[difficulty];
+
+  const targetTime = {
+    1: 35,
+    2: 45,
+    3: 60,
+    4: 75,
+    5: 95
+  }[difficulty];
+
+  return {
+    difficulty,
+    cognitive_level: cognitive,
+    reasoning_steps: reasoningSteps,
+    target_time_seconds: targetTime,
+
+    distractor_style:
+      difficulty >= 3
+        ? "common_misconception"
+        : "conceptual_confusion"
+  };
+}
 
   async function generateQuestionBatchV3(target,count,batchIndex=0){
     const subject=canonicalSubject(target);
@@ -197,11 +244,33 @@
 
     const blueprint=pickBlueprint(items,batchIndex,Math.min(10,Math.max(6,count*2)));
 
-    const allowedText=blueprint
-      .map(x=>`- ${x.code} | ${x.title}: ${x.focus}`)
-      .join('\n');
+     const allowedText=blueprint
+  .map(x=>`- ${x.code} | ${x.title}: ${x.focus}`)
+  .join('\n');
 
-    const raw=await callAI([
+
+// ===============================
+// BLUEPRINT DE DIFICULTAD
+// ===============================
+
+const questionBlueprints = Array.from(
+  {length: count},
+  (_,i)=>makeBlueprint(batchIndex * count + i)
+);
+
+const blueprintText = questionBlueprints
+  .map((b,i)=>`
+REACTIVO ${i+1}
+- dificultad: ${b.difficulty}/5
+- nivel cognitivo: ${b.cognitive_level}
+- pasos mínimos de razonamiento: ${b.reasoning_steps}
+- distractores: ${b.distractor_style}
+- tiempo objetivo: ${b.target_time_seconds} segundos
+`)
+  .join('\n');
+
+
+const raw=await callAI([
       {
         role:'system',
         content:
@@ -221,6 +290,49 @@ ${subject}
 
 GENERA:
 ${count} reactivos.
+
+BLUEPRINT OBLIGATORIO DE LOS REACTIVOS:
+
+${blueprintText}
+
+
+INTERPRETACIÓN DE DIFICULTAD:
+
+NIVEL 1:
+Recuerdo directo de un concepto, dato o definición.
+
+NIVEL 2:
+Comprensión, interpretación o comparación.
+
+NIVEL 3:
+Aplicación del conocimiento a una situación nueva.
+No debe resolverse solamente recordando una definición.
+
+NIVEL 4:
+Integración de al menos dos conceptos.
+Debe requerir razonamiento y discriminación entre
+distractores plausibles.
+
+NIVEL 5:
+Problema multietapa.
+Debe requerir inferencia, integración, cálculo o
+varios pasos antes de obtener la respuesta.
+
+
+REGLAS DE DIFICULTAD:
+
+- Respeta el nivel asignado a CADA reactivo.
+- No conviertas una pregunta sencilla en difícil usando vocabulario complicado.
+- En niveles 3 a 5 utiliza situaciones, datos, casos o problemas cuando el tema lo permita.
+- En niveles 4 y 5 la respuesta no debe aparecer literalmente en el enunciado.
+- Los distractores deben representar errores de razonamiento plausibles.
+- Las cuatro opciones deben tener longitud y nivel de detalle semejantes.
+- Evita distractores absurdos.
+- Evita pistas gramaticales.
+- Evita que la opción correcta sea evidentemente más específica.
+- No uses "todas las anteriores".
+- No uses "ninguna de las anteriores".
+
 
 FORMATO EXACTO:
 [
