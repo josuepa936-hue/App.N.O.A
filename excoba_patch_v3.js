@@ -641,6 +641,10 @@ const out=[];
         text:question,
         options,
         correct,
+         blueprint:
+  questionBlueprints[
+    Math.min(out.length, questionBlueprints.length - 1)
+  ],
         explain:String(q.explanation ?? q.explicacion ?? '').trim(),
         source:`Guía temática EXCOBA UAQ 2026-2 - PDF oficial · ${item.code} · PDF pág. ${item.page}`,
         syllabusCode:item.code,
@@ -651,7 +655,17 @@ const out=[];
       if(out.length>=count)break;
     }
 
-    return out;
+    // ==================================
+// NOA JUDGE — MODO SOMBRA
+// ==================================
+
+const judged = await judgeQuestionBatch(
+  out,
+  out.map(q => q.blueprint),
+  subject
+);
+
+return judged;
   }
 
   async function generateQuestionsV3(target,count=5){
