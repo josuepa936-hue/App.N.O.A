@@ -255,7 +255,7 @@
 
 const questionBlueprints = Array.from(
   {length: count},
-  (_,i)=>makeBlueprint(batchIndex * count + i)
+  (_,i)=>makeBlueprint(batchIndex * 3 + i)
 );
 
 const blueprintText = questionBlueprints
