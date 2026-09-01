@@ -732,7 +732,24 @@ return judged;
       act(`${fresh.length} reactivos EXCOBA creados de ${subject}`);
       save();
 
-      setStatus(`✓ ${fresh.length} reactivos guardados y listos`);
+      const judgeScores = fresh
+  .map(q => q.judge?.qualityScore)
+  .filter(Number.isFinite);
+
+const judgeAverage = judgeScores.length
+  ? Math.round(
+      (
+        judgeScores.reduce((a,b)=>a+b,0) /
+        judgeScores.length
+      ) * 10
+    ) / 10
+  : null;
+
+setStatus(
+  judgeAverage !== null
+    ? `✓ ${fresh.length} reactivos · calidad Judge: ${judgeAverage}/10`
+    : `✓ ${fresh.length} reactivos · Judge sin evaluación`
+);
       safeToast(`${fresh.length} preguntas creadas`);
 
       beginExamQueue(
