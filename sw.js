@@ -1,4 +1,4 @@
-const CACHE='noa-mobile-v6-8';
+const CACHE='noa-mobile-v6-9';
 const ASSETS=[
   './',
   './index.html',
