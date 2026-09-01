@@ -361,8 +361,64 @@ ${allowedText}`
       temperature:0.28
     });
 
-    const data=parseJSONLoose(raw);
-    const out=[];
+    let data;
+
+try {
+  data = parseJSONLoose(raw);
+
+} catch (firstError) {
+
+  console.warn(
+    "NOA recibió JSON imperfecto. Intentando repararlo:",
+    raw
+  );
+
+  const repaired = await callAI([
+    {
+      role: "system",
+      content: `
+Eres un reparador estricto de JSON.
+
+Tu única tarea es convertir el contenido recibido
+en JSON válido.
+
+NO respondas preguntas.
+NO cambies el contenido académico.
+NO agregues explicaciones.
+NO uses Markdown.
+
+Devuelve exclusivamente un arreglo JSON válido.
+`
+    },
+    {
+      role: "user",
+      content: `
+REPARA ESTE CONTENIDO:
+
+${raw}
+
+FORMATO OBLIGATORIO:
+
+[
+  {
+    "question": "...",
+    "options": ["...", "...", "...", "..."],
+    "correct": 0,
+    "explanation": "...",
+    "topic": "...",
+    "syllabus_code": "..."
+  }
+]
+`
+    }
+  ], {
+    temperature: 0
+  });
+
+  data = parseJSONLoose(repaired);
+}
+
+const out=[];
 
     for(const q of data){
       const question=String(q.question ?? q.pregunta ?? '').trim();
