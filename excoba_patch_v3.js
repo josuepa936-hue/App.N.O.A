@@ -665,7 +665,45 @@ const judged = await judgeQuestionBatch(
   subject
 );
 
-return judged;
+
+// ==================================
+// NOA JUDGE — FILTRO DE CALIDAD
+// ==================================
+
+const accepted = judged.filter(q => {
+
+  const j = q.judge;
+
+  // Si el Judge falla técnicamente,
+  // dejamos pasar la pregunta para no romper el examen.
+  if(!j || !Number.isFinite(j.qualityScore)){
+    return true;
+  }
+
+  const passes =
+    j.qualityScore >= 8.5 &&
+    j.syllabus_fidelity >= 9 &&
+    j.difficulty_match >= 8 &&
+    j.distractor_quality >= 8 &&
+    j.reasoning_quality >= 8 &&
+    j.clarity >= 8;
+
+  if(!passes){
+    console.log(
+      "NOA Judge rechazó reactivo:",
+      {
+        question:q.text,
+        score:j.qualityScore,
+        judge:j
+      }
+    );
+  }
+
+  return passes;
+});
+
+
+return accepted;
   }
 
   async function generateQuestionsV3(target,count=5){
@@ -747,8 +785,8 @@ const judgeAverage = judgeScores.length
 
 setStatus(
   judgeAverage !== null
-    ? `✓ ${fresh.length} reactivos · calidad Judge: ${judgeAverage}/10`
-    : `✓ ${fresh.length} reactivos · Judge sin evaluación`
+    ? `✓ ${fresh.length} reactivos aprobados · calidad Judge: ${judgeAverage}/10`
+    : `✓ ${fresh.length} reactivos aprobados`
 );
       safeToast(`${fresh.length} preguntas creadas`);
 
