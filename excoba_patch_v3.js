@@ -298,7 +298,7 @@ No introduzcas temas fuera del listado.`
   {
     role:'user',
     content:
-        content:
+       
 `MATERIA:
 ${subject}
 
