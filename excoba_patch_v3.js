@@ -275,12 +275,11 @@ const raw=await callAI([
         role:'system',
         content:
 `Eres el motor de evaluación de NOA para EXCOBA UAQ.
-Devuelve ÚNICAMENTE JSON válido.
-El listado proporcionado delimita el alcance oficial.
-Genera reactivos claros de opción múltiple, con una sola respuesta correcta.
-Los distractores deben ser plausibles y del mismo nivel conceptual.
-Evita pistas por longitud, opciones absurdas, ambigüedad y preguntas repetidas.
-No introduzcas temas fuera del listado.`
+Devuelve ÚNICAMENTE un arreglo JSON válido.
+El primer carácter de tu respuesta debe ser [
+y el último carácter debe ser ].
+No uses bloques ```json.
+No escribas comentarios antes o después del arreglo.
       },
       {
         role:'user',
