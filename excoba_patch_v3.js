@@ -271,18 +271,33 @@ REACTIVO ${i+1}
 
 
 const raw=await callAI([
-      {
-        role:'system',
-        content:
+  {
+    role:'system',
+    content:
 `Eres el motor de evaluación de NOA para EXCOBA UAQ.
+
 Devuelve ÚNICAMENTE un arreglo JSON válido.
+
 El primer carácter de tu respuesta debe ser [
 y el último carácter debe ser ].
-No uses bloques ```json.
+
+No uses bloques de código Markdown.
 No escribas comentarios antes o después del arreglo.
-      },
-      {
-        role:'user',
+
+El listado proporcionado delimita el alcance oficial.
+
+Genera reactivos claros con una sola respuesta correcta.
+
+Los distractores deben ser plausibles y representar
+errores conceptuales o de razonamiento realistas.
+
+Respeta estrictamente el blueprint de dificultad.
+
+No introduzcas temas fuera del listado.`
+  },
+  {
+    role:'user',
+    content:
         content:
 `MATERIA:
 ${subject}
