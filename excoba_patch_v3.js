@@ -234,6 +234,176 @@
         : "conceptual_confusion"
   };
 }
+   async function judgeQuestionBatch(questions, blueprints, subject){
+
+  if(!questions.length) return [];
+
+  try{
+
+    const material = questions.map((q,i)=>({
+      index:i,
+      question:q.text,
+      options:q.options,
+      correct:q.correct,
+      explanation:q.explain,
+      syllabus_code:q.syllabusCode,
+
+      expected_difficulty:
+        blueprints[i]?.difficulty ?? 3,
+
+      expected_cognitive_level:
+        blueprints[i]?.cognitive_level ?? "application",
+
+      expected_reasoning_steps:
+        blueprints[i]?.reasoning_steps ?? 2
+    }));
+
+
+    const raw = await callAI([
+      {
+        role:"system",
+        content:
+`Eres NOA Judge, revisor profesional de reactivos para EXCOBA UAQ.
+
+NO debes resolver ni reescribir los reactivos.
+
+Tu función es evaluar su calidad.
+
+Evalúa cada reactivo de manera estricta.
+
+ESCALAS 0 A 10:
+
+syllabus_fidelity:
+10 = completamente dentro del tema indicado.
+0 = fuera del alcance.
+
+difficulty_match:
+10 = coincide con la dificultad solicitada.
+0 = muy por debajo o por encima.
+
+distractor_quality:
+10 = todos los distractores son plausibles y representan errores reales.
+0 = distractores absurdos o evidentes.
+
+reasoning_quality:
+10 = exige el razonamiento esperado.
+0 = se responde sin procesar realmente el problema.
+
+clarity:
+10 = redacción inequívoca y precisa.
+0 = ambigua o confusa.
+
+IMPORTANTE:
+Una pregunta no es difícil simplemente porque use vocabulario complicado.
+
+Sé crítico.
+
+Devuelve SOLO JSON válido.`
+      },
+
+      {
+        role:"user",
+        content:
+`MATERIA:
+${subject}
+
+EVALÚA:
+
+${JSON.stringify(material)}
+
+FORMATO EXACTO:
+
+[
+  {
+    "index":0,
+    "syllabus_fidelity":10,
+    "difficulty_match":8,
+    "distractor_quality":9,
+    "reasoning_quality":8,
+    "clarity":10,
+    "comments":"comentario breve"
+  }
+]`
+      }
+
+    ],{
+      temperature:0
+    });
+
+
+    const judgments=parseJSONLoose(raw);
+
+    if(!Array.isArray(judgments)){
+      return questions;
+    }
+
+
+    return questions.map((q,i)=>{
+
+      const j=judgments.find(x=>
+        Number(x.index)===i
+      );
+
+      if(!j) return q;
+
+
+      const scores=[
+        Number(j.syllabus_fidelity),
+        Number(j.difficulty_match),
+        Number(j.distractor_quality),
+        Number(j.reasoning_quality),
+        Number(j.clarity)
+      ].filter(Number.isFinite);
+
+
+      const qualityScore=scores.length
+        ? scores.reduce((a,b)=>a+b,0)/scores.length
+        : null;
+
+
+      return {
+        ...q,
+
+        judge:{
+          syllabus_fidelity:
+            Number(j.syllabus_fidelity),
+
+          difficulty_match:
+            Number(j.difficulty_match),
+
+          distractor_quality:
+            Number(j.distractor_quality),
+
+          reasoning_quality:
+            Number(j.reasoning_quality),
+
+          clarity:
+            Number(j.clarity),
+
+          comments:
+            String(j.comments || ""),
+
+          qualityScore:
+            qualityScore===null
+              ? null
+              : Math.round(qualityScore*10)/10
+        }
+      };
+
+    });
+
+
+  }catch(err){
+
+    console.warn(
+      "NOA Judge no pudo evaluar el bloque:",
+      err
+    );
+
+    // El examen sigue funcionando aunque el Judge falle.
+    return questions;
+  }
+}
 
   async function generateQuestionBatchV3(target,count,batchIndex=0){
     const subject=canonicalSubject(target);
