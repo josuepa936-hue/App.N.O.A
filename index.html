@@ -1222,361 +1222,529 @@ function rateCard(q){
 function openQuestionModal(){openModal('questionModal')}
 function addQuestion(){let text=document.getElementById('qText').value.trim();let opts=['qA','qB','qC','qD'].map(id=>document.getElementById(id).value.trim());if(!text||opts.some(x=>!x))return toast('Completa la pregunta y opciones');db.questions.push({id:uid(),topicId:document.getElementById('qTopic').value,text,options:opts,correct:'ABCD'.indexOf(document.getElementById('qCorrect').value),explain:document.getElementById('qExplain').value.trim()});act('Pregunta añadida al banco');closeModal('questionModal');save()}
 function startExam(){let sid=document.getElementById('examSubject').value,count=parseInt(document.getElementById('examCount').value);let pool=db.questions.filter(q=>!sid||topicBy(q.topicId)?.subjectId===sid);if(!pool.length)return toast('No hay preguntas para esa selección');pool.sort((a,b)=>priority(topicBy(b.topicId)||{attempts:0,correct:0})-priority(topicBy(a.topicId)||{attempts:0,correct:0}));let top=pool.slice(0,Math.min(pool.length,Math.max(count*2,count)));shuffle(top);examQueue=top.slice(0,count);examIndex=0;examScore=0;examAnswers=[];renderExam()}
-function renderExam(){let box=document.getElementById('examBox');if(examIndex>=examQueue.length){
+function renderExam(){
 
-  const pct=examQueue.length
-    ? Math.round(examScore/examQueue.length*100)
-    : 0;
+  const box = document.getElementById('examBox');
 
 
   // =====================================
-  // RESUMEN POR DIFICULTAD
+  // EXAMEN TERMINADO
   // =====================================
 
-  const difficultyStats={};
+  if(examIndex >= examQueue.length){
 
-  for(const a of examAnswers){
+    const pct = examQueue.length
+      ? Math.round(
+          examScore / examQueue.length * 100
+        )
+      : 0;
 
-    const level=
-      a.blueprint?.difficulty ?? 'sin_nivel';
 
-    if(!difficultyStats[level]){
-      difficultyStats[level]={
-        correct:0,
-        total:0
-      };
+    // =====================================
+    // RENDIMIENTO POR DIFICULTAD
+    // =====================================
+
+    const difficultyStats = {};
+
+    for(const a of examAnswers){
+
+      const level =
+        a.blueprint?.difficulty ?? 'sin_nivel';
+
+
+      if(!difficultyStats[level]){
+
+        difficultyStats[level] = {
+          correct: 0,
+          total: 0
+        };
+
+      }
+
+
+      difficultyStats[level].total++;
+
+
+      if(a.ok){
+        difficultyStats[level].correct++;
+      }
+
     }
 
-    difficultyStats[level].total++;
 
-    if(a.ok){
-      difficultyStats[level].correct++;
-    }
-  }
+    // =====================================
+    // GUARDAR INTENTO COMPLETO
+    // =====================================
 
+    db.attempts.push({
 
-  // =====================================
-  // GUARDAR INTENTO COMPLETO
-  // =====================================
+      id: uid(),
 
-  db.attempts.push({
+      score: examScore,
 
-    id:uid(),
+      total: examQueue.length,
 
-    score:examScore,
+      pct,
 
-    total:examQueue.length,
+      at: new Date().toISOString(),
 
-    pct,
+      difficultyStats,
 
-    at:new Date().toISOString(),
+      answers: examAnswers.map(a => ({
+        ...a
+      }))
 
-    difficultyStats,
-
-    answers:examAnswers.map(a=>({
-      ...a
-    }))
-
-  });
+    });
 
 
-  act(
-    `Simulacro: ${examScore}/${examQueue.length} (${pct}%)`
-  );
-
-  save();
+    act(
+      `Simulacro: ${examScore}/${examQueue.length} (${pct}%)`
+    );
 
 
-  // =====================================
-  // ANALÍTICA VISUAL
-  // =====================================
+    save();
 
-  const difficultyHTML=
-    Object.entries(difficultyStats)
-      .sort((a,b)=>Number(a[0])-Number(b[0]))
-      .map(([level,s])=>{
 
-        const p=Math.round(
-          s.correct/s.total*100
-        );
+    // =====================================
+    // HTML DE DIFICULTAD
+    // =====================================
+
+    const difficultyHTML =
+      Object.entries(difficultyStats)
+
+        .sort(
+          (a,b) =>
+            Number(a[0]) - Number(b[0])
+        )
+
+        .map(([level,s]) => {
+
+          const p = s.total
+            ? Math.round(
+                s.correct / s.total * 100
+              )
+            : 0;
+
+
+          return `
+
+            <div class="item">
+
+              <b>
+                Nivel ${esc(String(level))}
+              </b>
+
+              <div>
+                ${s.correct}/${s.total}
+                · ${p}%
+              </div>
+
+            </div>
+
+          `;
+
+        })
+
+        .join('');
+
+
+    // =====================================
+    // ANÁLISIS POR PREGUNTA
+    // =====================================
+
+    const questionsHTML =
+      examAnswers.map((a,index) => {
+
+        const b = a.blueprint;
+        const j = a.judge;
+
+
+        const selectedLetter =
+          Number.isInteger(a.selected)
+            ? 'ABCD'[a.selected]
+            : '-';
+
+
+        const correctLetter =
+          Number.isInteger(a.correctIndex)
+            ? 'ABCD'[a.correctIndex]
+            : '-';
+
 
         return `
-          <div class="item">
-            <b>
-              Nivel ${esc(String(level))}
-            </b>
 
-            <div>
-              ${s.correct}/${s.total}
-              · ${p}%
+          <div
+            class="item"
+            style="margin-top:12px"
+          >
+
+
+            <div
+              class="row"
+              style="justify-content:space-between"
+            >
+
+              <b>
+                Pregunta ${index + 1}
+              </b>
+
+
+              <span class="badge">
+
+                ${
+                  a.ok
+                    ? '✓ Correcta'
+                    : '✕ Incorrecta'
+                }
+
+              </span>
+
             </div>
-          </div>
-        `;
-      })
-      .join('');
 
 
-  const questionsHTML=
-    examAnswers.map((a,index)=>{
-
-      const b=a.blueprint;
-      const j=a.judge;
-
-      const selectedLetter=
-        Number.isInteger(a.selected)
-          ? 'ABCD'[a.selected]
-          : '-';
-
-      const correctLetter=
-        Number.isInteger(a.correctIndex)
-          ? 'ABCD'[a.correctIndex]
-          : '-';
+            <p>
+              ${esc(a.question)}
+            </p>
 
 
-      return `
+            <div class="small">
 
-        <div class="item"
-             style="margin-top:12px">
+              Tu respuesta:
+              <b>
+                ${selectedLetter}
+              </b>
 
-          <div class="row"
-               style="justify-content:space-between">
+              · Correcta:
+              <b>
+                ${correctLetter}
+              </b>
 
-            <b>
-              Pregunta ${index+1}
-            </b>
-
-            <span class="badge">
-              ${a.ok?'✓ Correcta':'✕ Incorrecta'}
-            </span>
-
-          </div>
+            </div>
 
 
-          <p>
-            ${esc(a.question)}
-          </p>
+            ${
+              b
+              ? `
 
+                <div
+                  class="small"
+                  style="margin-top:8px"
+                >
 
-          <div class="small">
+                  <b>Blueprint</b>
 
-            Tu respuesta:
-            <b>${selectedLetter}</b>
+                  · Nivel
+                  ${b.difficulty ?? '-'}/5
 
-            · Correcta:
-            <b>${correctLetter}</b>
+                  · ${
+                    esc(
+                      b.cognitive_level || ''
+                    )
+                  }
 
-          </div>
-
-
-          ${
-            b
-            ? `
-              <div class="small"
-                   style="margin-top:8px">
-
-                Blueprint:
-                Nivel ${b.difficulty}/5
-
-                · ${esc(
-                    b.cognitive_level || ''
-                  )}
-
-                · ${b.reasoning_steps || '-'}
-                paso(s)
-
-              </div>
-            `
-            : ''
-          }
-
-
-          ${
-            j
-            ? `
-              <div
-                style="
-                  margin-top:10px;
-                  padding:10px;
-                  border:1px solid var(--line);
-                  border-radius:10px;
-                "
-              >
-
-                <b>
-                  NOA Judge
-                  · ${j.qualityScore ?? '-'}/10
-                </b>
-
-                <div class="small"
-                     style="margin-top:6px">
-
-                  Temario:
-                  ${j.syllabus_fidelity ?? '-'}/10
-
-                  · Dificultad:
-                  ${j.difficulty_match ?? '-'}/10
-
-                  · Distractores:
-                  ${j.distractor_quality ?? '-'}/10
-
-                  · Razonamiento:
-                  ${j.reasoning_quality ?? '-'}/10
-
-                  · Claridad:
-                  ${j.clarity ?? '-'}/10
+                  · ${
+                    b.reasoning_steps ?? '-'
+                  } paso(s)
 
                 </div>
 
-                ${
-                  j.comments
-                  ? `
-                    <div class="small"
-                         style="margin-top:6px">
-                      ${esc(j.comments)}
-                    </div>
-                  `
-                  : ''
-                }
+              `
+              : `
+                <div
+                  class="small"
+                  style="margin-top:8px"
+                >
+                  Sin blueprint registrado
+                </div>
+              `
+            }
 
-              </div>
-            `
-            : `
-              <div class="small"
-                   style="margin-top:8px">
-                Sin evaluación Judge
-              </div>
-            `
-          }
 
+            ${
+              j
+              ? `
+
+                <div
+                  style="
+                    margin-top:10px;
+                    padding:10px;
+                    border:1px solid var(--line);
+                    border-radius:10px;
+                  "
+                >
+
+                  <b>
+                    NOA Judge
+                    · ${
+                      j.qualityScore ?? '-'
+                    }/10
+                  </b>
+
+
+                  <div
+                    class="small"
+                    style="margin-top:6px"
+                  >
+
+                    Temario:
+                    ${
+                      j.syllabus_fidelity ?? '-'
+                    }/10
+
+                    · Dificultad:
+                    ${
+                      j.difficulty_match ?? '-'
+                    }/10
+
+                    · Distractores:
+                    ${
+                      j.distractor_quality ?? '-'
+                    }/10
+
+                    · Razonamiento:
+                    ${
+                      j.reasoning_quality ?? '-'
+                    }/10
+
+                    · Claridad:
+                    ${
+                      j.clarity ?? '-'
+                    }/10
+
+                  </div>
+
+
+                  ${
+                    j.comments
+                    ? `
+
+                      <div
+                        class="small"
+                        style="margin-top:6px"
+                      >
+
+                        ${
+                          esc(j.comments)
+                        }
+
+                      </div>
+
+                    `
+                    : ''
+                  }
+
+
+                </div>
+
+              `
+              : `
+
+                <div
+                  class="small"
+                  style="margin-top:8px"
+                >
+
+                  Sin evaluación Judge
+
+                </div>
+
+              `
+            }
+
+
+            ${
+              a.explanation
+              ? `
+
+                <div
+                  class="small"
+                  style="
+                    margin-top:10px;
+                    padding-top:10px;
+                    border-top:1px solid var(--line);
+                  "
+                >
+
+                  <b>Explicación:</b>
+
+                  ${
+                    esc(a.explanation)
+                  }
+
+                </div>
+
+              `
+              : ''
+            }
+
+
+          </div>
+
+        `;
+
+      })
+
+      .join('');
+
+
+    // =====================================
+    // PANTALLA FINAL
+    // =====================================
+
+    box.innerHTML = `
+
+      <h2>
+        Resultado:
+        ${examScore}/${examQueue.length}
+      </h2>
+
+
+      <div class="stat">
+
+        <div class="n">
+          ${pct}%
         </div>
-      `;
-    })
-    .join('');
 
-
-  const box=document.getElementById('examBox');
-
-  box.innerHTML=`
-
-    <h2>
-      Resultado:
-      ${examScore}/${examQueue.length}
-    </h2>
-
-    <div class="stat">
-      <div class="n">
-        ${pct}%
       </div>
-    </div>
 
 
-    <h3 style="margin-top:22px">
-      Rendimiento por dificultad
-    </h3>
+      <h3 style="margin-top:22px">
 
-    <div class="list">
-      ${difficultyHTML ||
-        '<div class="muted">Sin datos de dificultad.</div>'}
-    </div>
+        Rendimiento por dificultad
+
+      </h3>
 
 
-    <h3 style="margin-top:22px">
-      Análisis del examen
-    </h3>
+      <div class="list">
 
-    <div class="list">
-      ${questionsHTML}
-    </div>
+        ${
+          difficultyHTML ||
+          `
+            <div class="muted">
+              Sin datos de dificultad.
+            </div>
+          `
+        }
+
+      </div>
 
 
-    <button
-      class="btn primary"
-      style="margin-top:18px"
-      onclick="startExam()">
+      <h3 style="margin-top:22px">
 
-      Otro simulacro
+        Análisis del examen
 
-    </button>
-  `;
+      </h3>
 
-  return;
-}
-function answerExam(i){
 
-  const q=examQueue[examIndex];
-  const ok=i===q.correct;
-  const t=topicBy(q.topicId);
+      <div class="list">
 
-  if(ok) examScore++;
+        ${
+          questionsHTML ||
+          `
+            <div class="muted">
+              Sin análisis disponible.
+            </div>
+          `
+        }
 
-  if(t){
-    t.attempts=(t.attempts||0)+1;
+      </div>
 
-    if(ok){
-      t.correct=(t.correct||0)+1;
-    }
 
-    t.lastSeen=new Date().toISOString();
+      <button
+        class="btn primary"
+        style="margin-top:18px"
+        onclick="startExam()"
+      >
+
+        Otro simulacro
+
+      </button>
+
+    `;
+
+
+    return;
+
   }
 
 
+
   // =====================================
-  // NOA EXAM ANALYTICS
+  // MOSTRAR PREGUNTA ACTUAL
   // =====================================
 
-  examAnswers.push({
-
-    questionId:q.id,
-
-    question:q.text,
-
-    options:[...q.options],
-
-    selected:i,
-
-    correctIndex:q.correct,
-
-    ok,
-
-    topicId:q.topicId || '',
-
-    syllabusCode:q.syllabusCode || '',
-
-    blueprint:q.blueprint || null,
-
-    judge:q.judge || null,
-
-    explanation:q.explain || ''
-
-  });
+  const q = examQueue[examIndex];
 
 
-  const box=document.getElementById('examBox');
+  if(!q){
 
-  box.innerHTML=`
+    box.innerHTML = `
 
-    <h2 style="color:${ok?'var(--good)':'var(--bad)'}">
-      ${ok?'Correcto':'Incorrecto'}
+      <p class="muted">
+        No se encontró la pregunta actual.
+      </p>
+
+    `;
+
+    return;
+
+  }
+
+
+  const topicName =
+    topicBy(q.topicId)?.name ||
+    'Sin tema';
+
+
+  box.innerHTML = `
+
+    <div class="small">
+
+      Pregunta
+      ${examIndex + 1}
+      /
+      ${examQueue.length}
+
+      ·
+
+      ${esc(topicName)}
+
+    </div>
+
+
+    <h2>
+
+      ${esc(q.text)}
+
     </h2>
 
-    <p>
-      Respuesta:
-      <b>
-        ${'ABCD'[q.correct]})
-        ${esc(q.options[q.correct])}
-      </b>
-    </p>
 
-    <p class="muted">
-      ${esc(q.explain||'Revisa el concepto antes de continuar.')}
-    </p>
+    <div class="list">
 
-    <button
-      class="btn primary"
-      onclick="nextExam()">
-      Continuar
-    </button>
+      ${
+        q.options.map((option,i) => `
+
+          <button
+            class="btn"
+            style="text-align:left"
+            onclick="answerExam(${i})"
+          >
+
+            <b>
+              ${'ABCD'[i]})
+            </b>
+
+            ${esc(option)}
+
+          </button>
+
+        `).join('')
+      }
+
+    </div>
+
   `;
+
 }
 function nextExam(){examIndex++;renderExam()}
 function renderExamStats(){let e=document.getElementById('examStats'),a=db.attempts.slice(-5).reverse();e.innerHTML=a.length?a.map(x=>`<div class="item"><b>${x.pct}%</b> · ${x.score}/${x.total}<div class="small">${fmtDate(x.at)}</div></div>`).join(''):'Aún no hay simulacros.'}
@@ -1615,7 +1783,6 @@ function coachPrompt(q){let ctx=searchNotes(q).map(n=>n.text.slice(0,1800)).join
 function searchNotes(q){let words=keywords(q+' '+q).concat(q.toLowerCase().split(/\s+/).filter(w=>w.length>3));return db.notes.map(n=>({n,score:words.reduce((a,w)=>a+(n.text.toLowerCase().includes(w)?1:0),0)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,4).map(x=>x.n)}
 function offlineCoach(q){let matches=searchNotes(q);if(!matches.length)return 'No encontré ese concepto en tus apuntes. Puedes agregar material en Biblioteca o activar Ollama para respuestas generativas.';let chunks=matches.map(n=>{let ss=sentences(n.text),w=q.toLowerCase().split(/\s+/).filter(x=>x.length>3);let ranked=ss.map(s=>({s,sc:w.reduce((a,x)=>a+(s.toLowerCase().includes(x)?1:0),0)})).sort((a,b)=>b.sc-a.sc).slice(0,3).map(x=>x.s).join(' ');return `${n.title}: ${ranked}`}).join('\n\n');return `Encontré esto en tus materiales:\n\n${chunks}\n\nPara comprobar comprensión: ¿puedes explicarlo con tus propias palabras sin mirar el apunte?`}
 async function testOllama(){let e=document.getElementById('ollamaStatus');if(!e)return testAIConnection();e.textContent='Probando...';try{let r=await fetch('http://localhost:11434/api/tags');if(!r.ok)throw 0;let j=await r.json();e.textContent='Conectado ✓ Modelos: '+(j.models||[]).map(x=>x.name).join(', ')}catch(err){e.textContent='No conectado. NOA seguirá funcionando offline.'}}
-
 function setTimer(m){timerDefault=m*60;timerSeconds=timerDefault;renderTimer()}
 function renderTimer(){let m=Math.floor(timerSeconds/60),s=timerSeconds%60;document.getElementById('timer').textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')}
 function toggleTimer(){if(timerHandle){clearInterval(timerHandle);timerHandle=null;document.getElementById('timerBtn').textContent='Continuar';return}timerStart=timerStart||new Date();document.getElementById('timerBtn').textContent='Pausar';timerHandle=setInterval(()=>{timerSeconds--;renderTimer();if(timerSeconds<=0){clearInterval(timerHandle);timerHandle=null;let mins=Math.round(timerDefault/60);db.sessions.push({id:uid(),minutes:mins,at:new Date().toISOString()});act(`Sesión de enfoque completada: ${mins} min`);save();toast('Sesión completada');timerSeconds=timerDefault;timerStart=null;renderTimer();document.getElementById('timerBtn').textContent='Iniciar'}},1000)}
