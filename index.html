@@ -1746,6 +1746,157 @@ function renderExam(){
   `;
 
 }
+function answerExam(i){
+
+  const q = examQueue[examIndex];
+
+  if(!q){
+    toast('No se encontró la pregunta actual');
+    return;
+  }
+
+  const ok = i === q.correct;
+  const t = topicBy(q.topicId);
+
+  if(ok){
+    examScore++;
+  }
+
+
+  // =====================================
+  // ACTUALIZAR DOMINIO DEL TEMA
+  // =====================================
+
+  if(t){
+
+    t.attempts = (t.attempts || 0) + 1;
+
+    if(ok){
+      t.correct = (t.correct || 0) + 1;
+    }
+
+    t.lastSeen = new Date().toISOString();
+  }
+
+
+  // =====================================
+  // NOA EXAM ANALYTICS
+  // =====================================
+
+  examAnswers.push({
+
+    questionId: q.id || '',
+
+    question: q.text,
+
+    options: [...q.options],
+
+    selected: i,
+
+    correctIndex: q.correct,
+
+    ok,
+
+    topicId: q.topicId || '',
+
+    syllabusCode: q.syllabusCode || '',
+
+    blueprint: q.blueprint || null,
+
+    judge: q.judge || null,
+
+    explanation: q.explain || ''
+
+  });
+
+
+  // =====================================
+  // MOSTRAR RETROALIMENTACIÓN
+  // =====================================
+
+  const box =
+    document.getElementById('examBox');
+
+
+  box.innerHTML = `
+
+    <h2
+      style="
+        color:${
+          ok
+            ? 'var(--good)'
+            : 'var(--bad)'
+        }
+      "
+    >
+
+      ${
+        ok
+          ? 'Correcto'
+          : 'Incorrecto'
+      }
+
+    </h2>
+
+
+    ${
+      !ok
+      ? `
+
+        <p>
+
+          Tu respuesta:
+
+          <b>
+            ${'ABCD'[i]})
+            ${esc(q.options[i])}
+          </b>
+
+        </p>
+
+      `
+      : ''
+    }
+
+
+    <p>
+
+      Respuesta correcta:
+
+      <b>
+
+        ${'ABCD'[q.correct]})
+        ${esc(q.options[q.correct])}
+
+      </b>
+
+    </p>
+
+
+    <p class="muted">
+
+      ${
+        esc(
+          q.explain ||
+          'Revisa el concepto antes de continuar.'
+        )
+      }
+
+    </p>
+
+
+    <button
+      class="btn primary"
+      onclick="nextExam()"
+    >
+
+      Continuar
+
+    </button>
+
+  `;
+
+}  
 function nextExam(){examIndex++;renderExam()}
 function renderExamStats(){let e=document.getElementById('examStats'),a=db.attempts.slice(-5).reverse();e.innerHTML=a.length?a.map(x=>`<div class="item"><b>${x.pct}%</b> · ${x.score}/${x.total}<div class="small">${fmtDate(x.at)}</div></div>`).join(''):'Aún no hay simulacros.'}
 function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}}
