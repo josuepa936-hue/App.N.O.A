@@ -1898,7 +1898,390 @@ function answerExam(i){
 
 }  
 function nextExam(){examIndex++;renderExam()}
-function renderExamStats(){let e=document.getElementById('examStats'),a=db.attempts.slice(-5).reverse();e.innerHTML=a.length?a.map(x=>`<div class="item"><b>${x.pct}%</b> · ${x.score}/${x.total}<div class="small">${fmtDate(x.at)}</div></div>`).join(''):'Aún no hay simulacros.'}
+function renderExamStats(){
+
+  const e =
+    document.getElementById('examStats');
+
+  if(!e) return;
+
+
+  const attempts =
+    db.attempts
+      .slice(-5)
+      .reverse();
+
+
+  const historyHTML =
+
+    attempts.length
+
+      ? attempts.map(x => `
+
+          <div class="item">
+
+            <b>
+              ${x.pct}%
+            </b>
+
+            · ${x.score}/${x.total}
+
+            <div class="small">
+              ${fmtDate(x.at)}
+            </div>
+
+          </div>
+
+        `).join('')
+
+      : `
+          <div class="muted">
+            Aún no hay simulacros.
+          </div>
+        `;
+
+
+  const cal =
+    getNOACalibration();
+
+
+  let calibrationHTML;
+
+
+  if(cal.sample < 5){
+
+    calibrationHTML = `
+
+      <div
+        class="item"
+        style="margin-top:12px"
+      >
+
+        <b>
+          NOA Calibrator
+        </b>
+
+        <div class="small">
+
+          Recopilando datos…
+
+          ${cal.sample}/5 respuestas
+          utilizables.
+
+        </div>
+
+      </div>
+
+    `;
+
+  }else{
+
+
+    const levelHTML =
+
+      [1,2,3,4,5]
+
+        .filter(level =>
+          cal.stats[level].total > 0
+        )
+
+        .map(level => {
+
+          const s =
+            cal.stats[level];
+
+          const pct = Math.round(
+            s.correct /
+            s.total *
+            100
+          );
+
+
+          return `
+
+            <div class="small">
+
+              Nivel ${level}:
+              ${s.correct}/${s.total}
+              · ${pct}%
+
+            </div>
+
+          `;
+
+        })
+
+        .join('');
+
+
+    calibrationHTML = `
+
+      <div
+        class="item"
+        style="margin-top:12px"
+      >
+
+        <b>
+          NOA Calibrator
+        </b>
+
+
+        <div
+          style="
+            font-size:22px;
+            font-weight:800;
+            margin-top:7px;
+          "
+        >
+
+          Nivel objetivo:
+          ${cal.focus}/5
+
+        </div>
+
+
+        <div
+          class="small"
+          style="margin-bottom:8px"
+        >
+
+          Confianza:
+          ${cal.confidence}
+
+          · muestra:
+          ${cal.sample}
+
+        </div>
+
+
+        ${levelHTML}
+
+
+        <div
+          class="small"
+          style="margin-top:8px"
+        >
+
+          Ciclo recomendado:
+
+          ${cal.cycle.join(' · ')}
+
+        </div>
+
+      </div>
+
+    `;
+
+  }
+
+
+  e.innerHTML =
+
+    historyHTML +
+    calibrationHTML;
+
+}
+  // =====================================
+// NOA CALIBRATOR 1.0
+// =====================================
+
+function getNOACalibration(){
+
+  const answers = (db.attempts || [])
+    .slice(-12)
+    .flatMap(attempt =>
+      Array.isArray(attempt.answers)
+        ? attempt.answers
+        : []
+    )
+    .filter(a => {
+
+      const d =
+        Number(a.blueprint?.difficulty);
+
+      return (
+        Number.isFinite(d) &&
+        d >= 1 &&
+        d <= 5
+      );
+
+    })
+    .slice(-60);
+
+
+  const stats = {
+
+    1:{correct:0,total:0},
+    2:{correct:0,total:0},
+    3:{correct:0,total:0},
+    4:{correct:0,total:0},
+    5:{correct:0,total:0}
+
+  };
+
+
+  for(const a of answers){
+
+    const level =
+      Number(a.blueprint.difficulty);
+
+    stats[level].total++;
+
+    if(a.ok){
+      stats[level].correct++;
+    }
+
+  }
+
+
+  const measured = [];
+
+  for(let level=1;level<=5;level++){
+
+    const s = stats[level];
+
+    if(s.total >= 3){
+
+      measured.push({
+
+        level,
+
+        accuracy:
+          s.correct / s.total,
+
+        total:
+          s.total
+
+      });
+
+    }
+
+  }
+
+
+  let focus = 3;
+
+
+  if(measured.length){
+
+    // Busca el nivel más cercano a 70%,
+    // nuestra zona objetivo de entrenamiento.
+
+    const best =
+      measured
+        .slice()
+        .sort((a,b)=>
+
+          Math.abs(a.accuracy - 0.70) -
+          Math.abs(b.accuracy - 0.70)
+
+        )[0];
+
+
+    focus = best.level;
+
+
+    // Si el nivel ya está demasiado dominado,
+    // NOA aumenta la exigencia.
+
+    if(best.accuracy >= 0.82){
+
+      focus =
+        Math.min(5, focus + 1);
+
+    }
+
+
+    // Si está produciendo demasiados errores,
+    // retrocede un nivel temporalmente.
+
+    else if(best.accuracy < 0.50){
+
+      focus =
+        Math.max(1, focus - 1);
+
+    }
+
+  }
+
+
+  const confidence =
+
+    answers.length >= 30
+      ? 'alta'
+
+      : answers.length >= 15
+        ? 'media'
+
+        : 'baja';
+
+
+  const cycles = {
+
+    1:[
+      1,1,1,
+      2,2,2,2,
+      3,3,3
+    ],
+
+    2:[
+      1,
+      2,2,2,2,
+      3,3,3,
+      4,4
+    ],
+
+    3:[
+      2,2,
+      3,3,3,3,
+      4,4,4,
+      5
+    ],
+
+    4:[
+      2,
+      3,3,
+      4,4,4,4,
+      5,5,5
+    ],
+
+    5:[
+      3,3,
+      4,4,4,
+      5,5,5,5,5
+    ]
+
+  };
+
+
+  return {
+
+    sample:
+      answers.length,
+
+    stats,
+
+    focus,
+
+    confidence,
+
+    cycle:
+      cycles[focus]
+
+  };
+
+}
+
+
+// Permitirá que el Exam Engine
+// consulte al Calibrator después.
+
+window.NOA_CALIBRATOR = {
+
+  get:
+    getNOACalibration
+
+};
 function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}}
 
 function saveNote(){let title=document.getElementById('noteTitle').value.trim(),text=document.getElementById('noteText').value.trim();if(!title||!text)return toast('Completa título y contenido');db.notes.push({id:uid(),title,subjectId:document.getElementById('noteSubject').value,text,created:new Date().toISOString()});act('Apunte guardado: '+title);document.getElementById('noteTitle').value='';document.getElementById('noteText').value='';save()}
