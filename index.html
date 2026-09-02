@@ -778,7 +778,12 @@ const blank=()=>({version:6,subjects:[],topics:[],cards:[],notes:[],questions:[]
   openaiModel:'gpt-5.6-luna'
 }});
 let db=load();
-let reviewQueue=[],reviewIndex=0,examQueue=[],examIndex=0,examScore=0;
+let reviewQueue=[],
+    reviewIndex=0,
+    examQueue=[],
+    examIndex=0,
+    examScore=0,
+    examAnswers=[];
 let timerSeconds=1500,timerDefault=1500,timerHandle=null,timerStart=null;
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
@@ -1216,9 +1221,363 @@ function rateCard(q){
   
 function openQuestionModal(){openModal('questionModal')}
 function addQuestion(){let text=document.getElementById('qText').value.trim();let opts=['qA','qB','qC','qD'].map(id=>document.getElementById(id).value.trim());if(!text||opts.some(x=>!x))return toast('Completa la pregunta y opciones');db.questions.push({id:uid(),topicId:document.getElementById('qTopic').value,text,options:opts,correct:'ABCD'.indexOf(document.getElementById('qCorrect').value),explain:document.getElementById('qExplain').value.trim()});act('Pregunta añadida al banco');closeModal('questionModal');save()}
-function startExam(){let sid=document.getElementById('examSubject').value,count=parseInt(document.getElementById('examCount').value);let pool=db.questions.filter(q=>!sid||topicBy(q.topicId)?.subjectId===sid);if(!pool.length)return toast('No hay preguntas para esa selección');pool.sort((a,b)=>priority(topicBy(b.topicId)||{attempts:0,correct:0})-priority(topicBy(a.topicId)||{attempts:0,correct:0}));let top=pool.slice(0,Math.min(pool.length,Math.max(count*2,count)));shuffle(top);examQueue=top.slice(0,count);examIndex=0;examScore=0;renderExam()}
-function renderExam(){let box=document.getElementById('examBox');if(examIndex>=examQueue.length){let pct=examQueue.length?Math.round(examScore/examQueue.length*100):0;db.attempts.push({id:uid(),score:examScore,total:examQueue.length,pct,at:new Date().toISOString()});act(`Simulacro: ${examScore}/${examQueue.length} (${pct}%)`);save();box.innerHTML=`<h2>Resultado: ${examScore}/${examQueue.length}</h2><div class="stat"><div class="n">${pct}%</div></div><button class="btn primary" onclick="startExam()">Otro simulacro</button>`;return}let q=examQueue[examIndex];box.innerHTML=`<div class="small">Pregunta ${examIndex+1}/${examQueue.length} · ${esc(topicBy(q.topicId)?.name||'Sin tema')}</div><h2>${esc(q.text)}</h2><div class="list">${q.options.map((o,i)=>`<button class="btn" style="text-align:left" onclick="answerExam(${i})"><b>${'ABCD'[i]})</b> ${esc(o)}</button>`).join('')}</div>`}
-function answerExam(i){let q=examQueue[examIndex],ok=i===q.correct,t=topicBy(q.topicId);if(ok)examScore++;if(t){t.attempts=(t.attempts||0)+1;if(ok)t.correct=(t.correct||0)+1;t.lastSeen=new Date().toISOString()}let box=document.getElementById('examBox');box.innerHTML=`<h2 style="color:${ok?'var(--good)':'var(--bad)'}">${ok?'Correcto':'Incorrecto'}</h2><p>Respuesta: <b>${'ABCD'[q.correct]}) ${esc(q.options[q.correct])}</b></p><p class="muted">${esc(q.explain||'Revisa el concepto antes de continuar.')}</p><button class="btn primary" onclick="nextExam()">Continuar</button>`}
+function startExam(){let sid=document.getElementById('examSubject').value,count=parseInt(document.getElementById('examCount').value);let pool=db.questions.filter(q=>!sid||topicBy(q.topicId)?.subjectId===sid);if(!pool.length)return toast('No hay preguntas para esa selección');pool.sort((a,b)=>priority(topicBy(b.topicId)||{attempts:0,correct:0})-priority(topicBy(a.topicId)||{attempts:0,correct:0}));let top=pool.slice(0,Math.min(pool.length,Math.max(count*2,count)));shuffle(top);examQueue=top.slice(0,count);examIndex=0;examScore=0;examAnswers=[];renderExam()}
+function renderExam(){let box=document.getElementById('examBox');if(examIndex>=examQueue.length){
+
+  const pct=examQueue.length
+    ? Math.round(examScore/examQueue.length*100)
+    : 0;
+
+
+  // =====================================
+  // RESUMEN POR DIFICULTAD
+  // =====================================
+
+  const difficultyStats={};
+
+  for(const a of examAnswers){
+
+    const level=
+      a.blueprint?.difficulty ?? 'sin_nivel';
+
+    if(!difficultyStats[level]){
+      difficultyStats[level]={
+        correct:0,
+        total:0
+      };
+    }
+
+    difficultyStats[level].total++;
+
+    if(a.ok){
+      difficultyStats[level].correct++;
+    }
+  }
+
+
+  // =====================================
+  // GUARDAR INTENTO COMPLETO
+  // =====================================
+
+  db.attempts.push({
+
+    id:uid(),
+
+    score:examScore,
+
+    total:examQueue.length,
+
+    pct,
+
+    at:new Date().toISOString(),
+
+    difficultyStats,
+
+    answers:examAnswers.map(a=>({
+      ...a
+    }))
+
+  });
+
+
+  act(
+    `Simulacro: ${examScore}/${examQueue.length} (${pct}%)`
+  );
+
+  save();
+
+
+  // =====================================
+  // ANALÍTICA VISUAL
+  // =====================================
+
+  const difficultyHTML=
+    Object.entries(difficultyStats)
+      .sort((a,b)=>Number(a[0])-Number(b[0]))
+      .map(([level,s])=>{
+
+        const p=Math.round(
+          s.correct/s.total*100
+        );
+
+        return `
+          <div class="item">
+            <b>
+              Nivel ${esc(String(level))}
+            </b>
+
+            <div>
+              ${s.correct}/${s.total}
+              · ${p}%
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+
+  const questionsHTML=
+    examAnswers.map((a,index)=>{
+
+      const b=a.blueprint;
+      const j=a.judge;
+
+      const selectedLetter=
+        Number.isInteger(a.selected)
+          ? 'ABCD'[a.selected]
+          : '-';
+
+      const correctLetter=
+        Number.isInteger(a.correctIndex)
+          ? 'ABCD'[a.correctIndex]
+          : '-';
+
+
+      return `
+
+        <div class="item"
+             style="margin-top:12px">
+
+          <div class="row"
+               style="justify-content:space-between">
+
+            <b>
+              Pregunta ${index+1}
+            </b>
+
+            <span class="badge">
+              ${a.ok?'✓ Correcta':'✕ Incorrecta'}
+            </span>
+
+          </div>
+
+
+          <p>
+            ${esc(a.question)}
+          </p>
+
+
+          <div class="small">
+
+            Tu respuesta:
+            <b>${selectedLetter}</b>
+
+            · Correcta:
+            <b>${correctLetter}</b>
+
+          </div>
+
+
+          ${
+            b
+            ? `
+              <div class="small"
+                   style="margin-top:8px">
+
+                Blueprint:
+                Nivel ${b.difficulty}/5
+
+                · ${esc(
+                    b.cognitive_level || ''
+                  )}
+
+                · ${b.reasoning_steps || '-'}
+                paso(s)
+
+              </div>
+            `
+            : ''
+          }
+
+
+          ${
+            j
+            ? `
+              <div
+                style="
+                  margin-top:10px;
+                  padding:10px;
+                  border:1px solid var(--line);
+                  border-radius:10px;
+                "
+              >
+
+                <b>
+                  NOA Judge
+                  · ${j.qualityScore ?? '-'}/10
+                </b>
+
+                <div class="small"
+                     style="margin-top:6px">
+
+                  Temario:
+                  ${j.syllabus_fidelity ?? '-'}/10
+
+                  · Dificultad:
+                  ${j.difficulty_match ?? '-'}/10
+
+                  · Distractores:
+                  ${j.distractor_quality ?? '-'}/10
+
+                  · Razonamiento:
+                  ${j.reasoning_quality ?? '-'}/10
+
+                  · Claridad:
+                  ${j.clarity ?? '-'}/10
+
+                </div>
+
+                ${
+                  j.comments
+                  ? `
+                    <div class="small"
+                         style="margin-top:6px">
+                      ${esc(j.comments)}
+                    </div>
+                  `
+                  : ''
+                }
+
+              </div>
+            `
+            : `
+              <div class="small"
+                   style="margin-top:8px">
+                Sin evaluación Judge
+              </div>
+            `
+          }
+
+        </div>
+      `;
+    })
+    .join('');
+
+
+  const box=document.getElementById('examBox');
+
+  box.innerHTML=`
+
+    <h2>
+      Resultado:
+      ${examScore}/${examQueue.length}
+    </h2>
+
+    <div class="stat">
+      <div class="n">
+        ${pct}%
+      </div>
+    </div>
+
+
+    <h3 style="margin-top:22px">
+      Rendimiento por dificultad
+    </h3>
+
+    <div class="list">
+      ${difficultyHTML ||
+        '<div class="muted">Sin datos de dificultad.</div>'}
+    </div>
+
+
+    <h3 style="margin-top:22px">
+      Análisis del examen
+    </h3>
+
+    <div class="list">
+      ${questionsHTML}
+    </div>
+
+
+    <button
+      class="btn primary"
+      style="margin-top:18px"
+      onclick="startExam()">
+
+      Otro simulacro
+
+    </button>
+  `;
+
+  return;
+}
+function answerExam(i){
+
+  const q=examQueue[examIndex];
+  const ok=i===q.correct;
+  const t=topicBy(q.topicId);
+
+  if(ok) examScore++;
+
+  if(t){
+    t.attempts=(t.attempts||0)+1;
+
+    if(ok){
+      t.correct=(t.correct||0)+1;
+    }
+
+    t.lastSeen=new Date().toISOString();
+  }
+
+
+  // =====================================
+  // NOA EXAM ANALYTICS
+  // =====================================
+
+  examAnswers.push({
+
+    questionId:q.id,
+
+    question:q.text,
+
+    options:[...q.options],
+
+    selected:i,
+
+    correctIndex:q.correct,
+
+    ok,
+
+    topicId:q.topicId || '',
+
+    syllabusCode:q.syllabusCode || '',
+
+    blueprint:q.blueprint || null,
+
+    judge:q.judge || null,
+
+    explanation:q.explain || ''
+
+  });
+
+
+  const box=document.getElementById('examBox');
+
+  box.innerHTML=`
+
+    <h2 style="color:${ok?'var(--good)':'var(--bad)'}">
+      ${ok?'Correcto':'Incorrecto'}
+    </h2>
+
+    <p>
+      Respuesta:
+      <b>
+        ${'ABCD'[q.correct]})
+        ${esc(q.options[q.correct])}
+      </b>
+    </p>
+
+    <p class="muted">
+      ${esc(q.explain||'Revisa el concepto antes de continuar.')}
+    </p>
+
+    <button
+      class="btn primary"
+      onclick="nextExam()">
+      Continuar
+    </button>
+  `;
+}
 function nextExam(){examIndex++;renderExam()}
 function renderExamStats(){let e=document.getElementById('examStats'),a=db.attempts.slice(-5).reverse();e.innerHTML=a.length?a.map(x=>`<div class="item"><b>${x.pct}%</b> · ${x.score}/${x.total}<div class="small">${fmtDate(x.at)}</div></div>`).join(''):'Aún no hay simulacros.'}
 function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}}
@@ -1587,7 +1946,7 @@ function selectQuestionsForSubject(sid,count){
 }
 function beginExamQueue(queue,label='Simulacro'){
   if(!queue.length){toast('No hay preguntas suficientes');return}
-  examQueue=queue;examIndex=0;examScore=0;page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);
+  examQueue=queue;examIndex=0;examScore=0;examAnswers=[];page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);
 }
 function startExamForTarget(target,count=10){
   if(!db.subjects.some(s=>s.name.startsWith('EXCOBA')))loadExcobaPreset(true);
