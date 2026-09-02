@@ -188,7 +188,12 @@
     return out;
   }
    function makeBlueprint(index){
-  const cycle = [
+
+  // =====================================
+  // CICLO BASE
+  // =====================================
+
+  const baseCycle = [
     1,
     2,2,
     3,3,3,
@@ -196,43 +201,135 @@
     5
   ];
 
-  const difficulty = cycle[index % cycle.length];
+
+  let cycle = baseCycle;
+
+  let calibration = null;
+
+
+  // =====================================
+  // CONSULTAR NOA CALIBRATOR
+  // =====================================
+
+  try{
+
+    calibration =
+      window.NOA_CALIBRATOR?.get?.() || null;
+
+
+    if(
+      calibration &&
+      calibration.sample >= 5 &&
+      Array.isArray(calibration.cycle) &&
+      calibration.cycle.length
+    ){
+
+      cycle = calibration.cycle;
+
+    }
+
+  }catch(err){
+
+    console.warn(
+      'NOA Calibrator no disponible:',
+      err
+    );
+
+  }
+
+
+  // =====================================
+  // DIFICULTAD ADAPTATIVA
+  // =====================================
+
+  const difficulty =
+    Number(
+      cycle[index % cycle.length]
+    ) || 3;
+
 
   const cognitive = {
-    1: "recall",
-    2: "comprehension",
-    3: "application",
-    4: "integration",
-    5: "multi_step"
+
+    1:'recall',
+
+    2:'comprehension',
+
+    3:'application',
+
+    4:'integration',
+
+    5:'multi_step'
+
   }[difficulty];
+
 
   const reasoningSteps = {
-    1: 1,
-    2: 1,
-    3: 2,
-    4: 2,
-    5: 3
+
+    1:1,
+
+    2:1,
+
+    3:2,
+
+    4:2,
+
+    5:3
+
   }[difficulty];
+
 
   const targetTime = {
-    1: 35,
-    2: 45,
-    3: 60,
-    4: 75,
-    5: 95
+
+    1:35,
+
+    2:45,
+
+    3:60,
+
+    4:75,
+
+    5:95
+
   }[difficulty];
 
+
   return {
+
     difficulty,
-    cognitive_level: cognitive,
-    reasoning_steps: reasoningSteps,
-    target_time_seconds: targetTime,
+
+    cognitive_level:
+      cognitive,
+
+    reasoning_steps:
+      reasoningSteps,
+
+    target_time_seconds:
+      targetTime,
 
     distractor_style:
       difficulty >= 3
-        ? "common_misconception"
-        : "conceptual_confusion"
+        ? 'common_misconception'
+        : 'conceptual_confusion',
+
+
+    // =====================================
+    // METADATOS DEL CALIBRATOR
+    // =====================================
+
+    adaptive:
+      Boolean(
+        calibration &&
+        calibration.sample >= 5
+      ),
+
+    calibrator_focus:
+      calibration?.focus ?? null,
+
+    calibration_sample:
+      calibration?.sample ?? 0
+
   };
+
 }
    async function judgeQuestionBatch(questions, blueprints, subject){
 
