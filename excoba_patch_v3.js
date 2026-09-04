@@ -803,31 +803,7 @@ const accepted = judged.filter(q => {
 // DIAGNÓSTICO TEMPORAL NOA
 // ==================================
 
-const judgeScores = judged
-  .map(q => q.judge?.qualityScore)
-  .filter(Number.isFinite);
 
-const judgeAverage = judgeScores.length
-  ? Math.round(
-      (
-        judgeScores.reduce((a,b)=>a+b,0) /
-        judgeScores.length
-      ) * 10
-    ) / 10
-  : null;
-
-if(accepted.length === 0){
-
-  throw new Error(
-    `DIAGNÓSTICO NOA → ` +
-    `IA devolvió: ${data.length} · ` +
-    `válidos técnicos: ${out.length} · ` +
-    `Judge evaluó: ${judgeScores.length} · ` +
-    `promedio Judge: ${judgeAverage ?? 'sin dato'} · ` +
-    `aprobados: 0`
-  );
-
-}
 
 return accepted;
   }
