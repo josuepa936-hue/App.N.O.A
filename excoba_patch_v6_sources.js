@@ -186,7 +186,19 @@
         new Date().toISOString(),
 
       sourceType:
-        'course'
+  'course',
+
+analysisStatus:
+  'pending',
+
+analysis:
+  null,
+
+analyzedAt:
+  null,
+
+analysisError:
+  null
 
     };
 
@@ -228,6 +240,529 @@
     });
 
   }
+
+   // =========================================
+// NOA SOURCE ANALYZER 1.0
+// =========================================
+
+function parseAnalyzerJSON(raw){
+
+  const text =
+    String(raw ?? '')
+      .replace(/```json/gi,'')
+      .replace(/```/g,'')
+      .trim();
+
+
+  try{
+
+    const parsed =
+      JSON.parse(text);
+
+    if(
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed)
+    ){
+      return parsed;
+    }
+
+  }catch{}
+
+
+  const a =
+    text.indexOf('{');
+
+  const b =
+    text.lastIndexOf('}');
+
+
+  if(a >= 0 && b > a){
+
+    const parsed =
+      JSON.parse(
+        text.slice(a,b+1)
+      );
+
+    if(
+      parsed &&
+      typeof parsed === 'object'
+    ){
+      return parsed;
+    }
+
+  }
+
+
+  throw new Error(
+    'Source Analyzer recibió JSON inválido'
+  );
+
+}
+
+
+function officialItemsForSource(subject){
+
+  try{
+
+    return (
+      window
+        .NOA_EXCOBA_V4
+        ?.itemsFor?.(subject) ||
+      []
+    );
+
+  }catch{
+
+    return [];
+
+  }
+
+}
+
+
+function clampDifficulty(value){
+
+  const n =
+    Number(value);
+
+  if(!Number.isFinite(n)){
+    return 3;
+  }
+
+  return Math.max(
+    1,
+    Math.min(5,Math.round(n))
+  );
+
+}
+
+
+async function analyzeCourseSource(sourceId){
+
+  ensureSourceDB();
+
+
+  const source =
+    db.courseSources.find(
+      s => s.id === sourceId
+    );
+
+
+  if(!source){
+
+    throw new Error(
+      'No encontré el material de clase'
+    );
+
+  }
+
+
+  source.analysisStatus =
+    'analyzing';
+
+  source.analysisError =
+    null;
+
+
+  try{
+    save();
+  }catch{}
+
+
+  renderCourseSources();
+
+
+  // =========================================
+  // TEMARIO OFICIAL RELACIONADO
+  // =========================================
+
+  const officialItems =
+    officialItemsForSource(
+      source.subject
+    );
+
+
+  const officialText =
+    officialItems.length
+
+      ? officialItems
+          .slice(0,40)
+          .map(item =>
+
+            `${item.code} | ` +
+            `${item.title}: ` +
+            `${item.focus || ''}`
+
+          )
+          .join('\n')
+
+      : 'No hay puntos oficiales disponibles.';
+
+
+  // =========================================
+  // LLAMADA A IA
+  // =========================================
+
+  const raw =
+    await callAI([
+
+      {
+        role:'system',
+
+        content:
+`Eres NOA Source Analyzer.
+
+Tu trabajo NO es crear preguntas todavía.
+
+Debes convertir material de clase del estudiante
+en un mapa académico estructurado que posteriormente
+usará un motor de evaluación.
+
+REGLAS IMPORTANTES:
+
+1. Los conceptos declarados como vistos en clase
+deben estar respaldados por el MATERIAL DEL CURSO.
+
+2. Puedes detectar relaciones académicas implícitas,
+pero debes marcar esas relaciones como "inferred".
+
+3. Nunca inventes que un contenido estaba en la clase.
+
+4. Solo puedes asociar códigos EXCOBA que aparezcan
+en la lista oficial proporcionada.
+
+5. Distingue:
+
+core
+= contenido directamente alineado con EXCOBA.
+
+related
+= extensión natural de un punto EXCOBA.
+
+course_only
+= fue visto en clase, pero no está claramente
+representado en el temario proporcionado.
+
+advanced
+= contenido de profundidad superior que puede
+servir para entrenamiento avanzado.
+
+6. La dificultad sugerida 1-5 debe depender de
+la demanda cognitiva posible, no de palabras difíciles.
+
+7. Devuelve ÚNICAMENTE JSON válido.`
+      },
+
+
+      {
+        role:'user',
+
+        content:
+`MATERIA:
+${source.subject}
+
+TÍTULO:
+${source.title}
+
+MATERIAL DEL CURSO:
+--------------------
+${source.content}
+--------------------
+
+PUNTOS OFICIALES EXCOBA DISPONIBLES:
+--------------------
+${officialText}
+--------------------
+
+Analiza el material.
+
+FORMATO EXACTO:
+
+{
+  "summary":"resumen académico breve",
+
+  "concepts":[
+    {
+      "name":"concepto",
+      "classification":"core",
+      "depth":"basic",
+      "syllabus_codes":["3.4.x.x"]
+    }
+  ],
+
+  "relations":[
+    {
+      "from":"concepto A",
+      "to":"concepto B",
+      "relation":"descripción breve",
+      "origin":"explicit"
+    }
+  ],
+
+  "syllabus_links":[
+    {
+      "code":"3.4.x.x",
+      "relation":"direct",
+      "confidence":0.95
+    }
+  ],
+
+  "evaluable_objectives":[
+    {
+      "type":"application",
+      "objective":"objetivo evaluable",
+      "suggested_difficulty":3
+    }
+  ],
+
+  "overall_classification":"related",
+
+  "estimated_depth":"intermediate"
+}`
+      }
+
+    ],{
+      temperature:0.1
+    });
+
+
+  const data =
+    parseAnalyzerJSON(raw);
+
+
+  // =========================================
+  // NORMALIZAR RESULTADO
+  // =========================================
+
+  const analysis = {
+
+    summary:
+      String(
+        data.summary || ''
+      )
+        .trim()
+        .slice(0,700),
+
+
+    concepts:
+      Array.isArray(data.concepts)
+
+        ? data.concepts
+            .slice(0,40)
+            .map(c => ({
+
+              name:
+                String(
+                  c.name || ''
+                ).trim(),
+
+              classification:
+                [
+                  'core',
+                  'related',
+                  'course_only',
+                  'advanced'
+                ].includes(
+                  c.classification
+                )
+                  ? c.classification
+                  : 'course_only',
+
+              depth:
+                [
+                  'basic',
+                  'intermediate',
+                  'advanced'
+                ].includes(c.depth)
+
+                  ? c.depth
+                  : 'intermediate',
+
+              syllabus_codes:
+                Array.isArray(
+                  c.syllabus_codes
+                )
+                  ? c.syllabus_codes
+                      .map(String)
+                      .slice(0,8)
+                  : []
+
+            }))
+            .filter(c => c.name)
+
+        : [],
+
+
+    relations:
+      Array.isArray(data.relations)
+
+        ? data.relations
+            .slice(0,40)
+            .map(r => ({
+
+              from:
+                String(
+                  r.from || ''
+                ).trim(),
+
+              to:
+                String(
+                  r.to || ''
+                ).trim(),
+
+              relation:
+                String(
+                  r.relation || ''
+                ).trim(),
+
+              origin:
+                r.origin === 'explicit'
+                  ? 'explicit'
+                  : 'inferred'
+
+            }))
+            .filter(
+              r => r.from && r.to
+            )
+
+        : [],
+
+
+    syllabus_links:
+      Array.isArray(
+        data.syllabus_links
+      )
+
+        ? data.syllabus_links
+            .slice(0,20)
+            .map(link => ({
+
+              code:
+                String(
+                  link.code || ''
+                ).trim(),
+
+              relation:
+                String(
+                  link.relation ||
+                  'related'
+                ).trim(),
+
+              confidence:
+                Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    Number(
+                      link.confidence
+                    ) || 0
+                  )
+                )
+
+            }))
+            .filter(link => link.code)
+
+        : [],
+
+
+    evaluable_objectives:
+      Array.isArray(
+        data.evaluable_objectives
+      )
+
+        ? data.evaluable_objectives
+            .slice(0,30)
+            .map(o => ({
+
+              type:
+                [
+                  'conceptual',
+                  'comprehension',
+                  'application',
+                  'integration',
+                  'discrimination',
+                  'multi_step'
+                ].includes(o.type)
+
+                  ? o.type
+                  : 'application',
+
+              objective:
+                String(
+                  o.objective || ''
+                ).trim(),
+
+              suggested_difficulty:
+                clampDifficulty(
+                  o.suggested_difficulty
+                )
+
+            }))
+            .filter(
+              o => o.objective
+            )
+
+        : [],
+
+
+    overall_classification:
+      [
+        'core',
+        'related',
+        'course_only',
+        'advanced'
+      ].includes(
+        data.overall_classification
+      )
+
+        ? data.overall_classification
+        : 'course_only',
+
+
+    estimated_depth:
+      [
+        'basic',
+        'intermediate',
+        'advanced'
+      ].includes(
+        data.estimated_depth
+      )
+
+        ? data.estimated_depth
+        : 'intermediate'
+
+  };
+
+
+  // =========================================
+  // GUARDAR ANÁLISIS
+  // =========================================
+
+  source.analysis =
+    analysis;
+
+  source.analysisStatus =
+    'ready';
+
+  source.analyzedAt =
+    new Date().toISOString();
+
+  source.analysisError =
+    null;
+
+
+  try{
+    save();
+  }catch{}
+
+
+  renderCourseSources();
+
+
+  return analysis;
+
+}
 
 
   function removeCourseSource(id){
@@ -376,40 +911,96 @@
             }
 
           </div>
+${renderSourceAnalysis(s)}
 
-          <button
-            class="btn"
-            style="margin-top:8px"
-            data-remove-course="${s.id}"
-          >
+<button
+  class="btn"
+  style="margin-top:8px"
+  data-analyze-course="${s.id}"
+>
+  ${
+    s.analysis
+      ? 'Reanalizar con NOA'
+      : 'Analizar con NOA'
+  }
+</button>
 
-            Eliminar
-
-          </button>
+<button
+  class="btn"
+  style="margin-top:8px"
+  data-remove-course="${s.id}"
+>
+  Eliminar
+</button>
 
         </div>
 
       `).join('');
 
 
-    box
-      .querySelectorAll(
-        '[data-remove-course]'
-      )
-      .forEach(btn => {
+box
+  .querySelectorAll(
+    '[data-analyze-course]'
+  )
+  .forEach(btn => {
 
-        btn.addEventListener(
-          'click',
-          () => {
+    btn.addEventListener(
+      'click',
 
-            removeCourseSource(
-              btn.dataset.removeCourse
+      async () => {
+
+        const id =
+          btn.dataset.analyzeCourse;
+
+        try{
+
+          btn.disabled = true;
+
+          await analyzeCourseSource(id);
+
+          try{
+            toast(
+              'Source Analyzer completado'
+            );
+          }catch{}
+
+        }catch(err){
+
+          const source =
+            db.courseSources.find(
+              s => s.id === id
             );
 
-          }
-        );
+          if(source){
 
-      });
+            source.analysisStatus =
+              'error';
+
+            source.analysisError =
+              err.message;
+
+            try{
+              save();
+            }catch{}
+
+          }
+
+          renderCourseSources();
+
+          try{
+            toast(
+              'No pude analizar: ' +
+              err.message
+            );
+          }catch{}
+
+        }
+
+      }
+
+    );
+
+  });
 
   }
 
@@ -424,7 +1015,233 @@
       .replace(/'/g,'&#039;');
 
   }
+function renderSourceAnalysis(source){
 
+  if(
+    source.analysisStatus ===
+    'analyzing'
+  ){
+
+    return `
+
+      <div
+        class="sourcebox"
+        style="margin-top:10px"
+      >
+
+        NOA Source Analyzer
+        está analizando este material…
+
+      </div>
+
+    `;
+
+  }
+
+
+  if(
+    source.analysisStatus ===
+    'error'
+  ){
+
+    return `
+
+      <div
+        class="sourcebox"
+        style="margin-top:10px"
+      >
+
+        <b>
+          Análisis pendiente
+        </b>
+
+        <div class="small">
+
+          ${
+            escapeHTML(
+              source.analysisError ||
+              'No se pudo analizar.'
+            )
+          }
+
+        </div>
+
+      </div>
+
+    `;
+
+  }
+
+
+  const a =
+    source.analysis;
+
+
+  if(!a){
+
+    return `
+
+      <div
+        class="sourcebox"
+        style="margin-top:10px"
+      >
+
+        Material guardado,
+        todavía sin analizar.
+
+      </div>
+
+    `;
+
+  }
+
+
+  const concepts =
+    (a.concepts || [])
+      .slice(0,8)
+      .map(c =>
+        escapeHTML(c.name)
+      )
+      .join(' · ');
+
+
+  const codes =
+    (a.syllabus_links || [])
+      .slice(0,6)
+      .map(x =>
+        escapeHTML(x.code)
+      )
+      .join(' · ');
+
+
+  const levels =
+    [...new Set(
+
+      (a.evaluable_objectives || [])
+        .map(o =>
+          o.suggested_difficulty
+        )
+
+    )]
+      .sort()
+      .join(' · ');
+
+
+  return `
+
+    <div
+      class="sourcebox"
+      style="margin-top:10px"
+    >
+
+      <b>
+        NOA Source Analyzer ✓
+      </b>
+
+
+      <div
+        class="small"
+        style="margin-top:6px"
+      >
+
+        Clasificación:
+        <b>
+          ${escapeHTML(
+            a.overall_classification
+          )}
+        </b>
+
+        · Profundidad:
+        <b>
+          ${escapeHTML(
+            a.estimated_depth
+          )}
+        </b>
+
+      </div>
+
+
+      ${
+        concepts
+          ? `
+            <div
+              class="small"
+              style="margin-top:6px"
+            >
+
+              <b>Conceptos:</b>
+              ${concepts}
+
+            </div>
+          `
+          : ''
+      }
+
+
+      ${
+        codes
+          ? `
+            <div
+              class="small"
+              style="margin-top:6px"
+            >
+
+              <b>
+                Relación EXCOBA:
+              </b>
+
+              ${codes}
+
+            </div>
+          `
+          : ''
+      }
+
+
+      ${
+        levels
+          ? `
+            <div
+              class="small"
+              style="margin-top:6px"
+            >
+
+              <b>
+                Niveles evaluables:
+              </b>
+
+              ${levels}
+
+            </div>
+          `
+          : ''
+      }
+
+
+      ${
+        a.summary
+          ? `
+            <div
+              class="small"
+              style="margin-top:8px"
+            >
+
+              ${
+                escapeHTML(
+                  a.summary
+                )
+              }
+
+            </div>
+          `
+          : ''
+      }
+
+    </div>
+
+  `;
+
+}
 
   // =========================================
   // CREAR INTERFAZ
@@ -647,25 +1464,60 @@ inhibición competitiva..."
             subjectSelect.value;
 
 
-          addCourseSource(
-            subject,
-            content
-          );
+   const source =
+  addCourseSource(
+    subject,
+    content
+  );
 
 
-          input.value = '';
+input.value = '';
+
+renderCourseSources();
 
 
-          renderCourseSources();
+try{
+
+  toast(
+    'Material guardado. NOA lo está analizando…'
+  );
+
+}catch{}
 
 
-          try{
-            toast(
-              'Material del curso guardado'
-            );
-          }catch{}
+try{
 
-        }
+  await analyzeCourseSource(
+    source.id
+  );
+
+
+  try{
+
+    toast(
+      'Material analizado y clasificado'
+    );
+
+  }catch{}
+
+
+}catch(err){
+
+  console.warn(
+    'Source Analyzer:',
+    err
+  );
+
+
+  try{
+
+    toast(
+      'Material guardado, pero el análisis quedó pendiente'
+    );
+
+  }catch{}
+
+}
       );
 
 
@@ -691,7 +1543,9 @@ inhibición competitiva..."
 
     addCourseSource,
 
-    removeCourseSource
+    removeCourseSource,
+
+  analyzeCourseSource
 
   };
 
