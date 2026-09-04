@@ -1221,7 +1221,120 @@ function rateCard(q){
   
 function openQuestionModal(){openModal('questionModal')}
 function addQuestion(){let text=document.getElementById('qText').value.trim();let opts=['qA','qB','qC','qD'].map(id=>document.getElementById(id).value.trim());if(!text||opts.some(x=>!x))return toast('Completa la pregunta y opciones');db.questions.push({id:uid(),topicId:document.getElementById('qTopic').value,text,options:opts,correct:'ABCD'.indexOf(document.getElementById('qCorrect').value),explain:document.getElementById('qExplain').value.trim()});act('Pregunta añadida al banco');closeModal('questionModal');save()}
-function startExam(){let sid=document.getElementById('examSubject').value,count=parseInt(document.getElementById('examCount').value);let pool=db.questions.filter(q=>!sid||topicBy(q.topicId)?.subjectId===sid);if(!pool.length)return toast('No hay preguntas para esa selección');pool.sort((a,b)=>priority(topicBy(b.topicId)||{attempts:0,correct:0})-priority(topicBy(a.topicId)||{attempts:0,correct:0}));let top=pool.slice(0,Math.min(pool.length,Math.max(count*2,count)));shuffle(top);examQueue=top.slice(0,count);examIndex=0;examScore=0;examAnswers=[];renderExam()}
+function startExam(){
+
+  const sid =
+    document.getElementById('examSubject').value;
+
+  const count =
+    parseInt(
+      document.getElementById('examCount').value
+    ) || 10;
+
+
+  let pool = db.questions.filter(q =>
+
+    !sid ||
+
+    topicBy(q.topicId)?.subjectId === sid
+
+  );
+
+
+  if(!pool.length){
+
+    return toast(
+      'No hay preguntas para esa selección'
+    );
+
+  }
+
+
+  // =====================================
+  // SOLO REACTIVOS CON BLUEPRINT
+  // =====================================
+
+  const adaptivePool = pool.filter(q => {
+
+    const difficulty =
+      Number(q.blueprint?.difficulty);
+
+    return (
+      Number.isFinite(difficulty) &&
+      difficulty >= 1 &&
+      difficulty <= 5
+    );
+
+  });
+
+
+  // =====================================
+  // NO MEZCLAR DATOS ANTIGUOS
+  // =====================================
+
+  if(adaptivePool.length < count){
+
+    const missing =
+      count - adaptivePool.length;
+
+    return toast(
+      `Solo hay ${adaptivePool.length} reactivos adaptativos. ` +
+      `Genera ${missing} más desde el Temario Maestro.`
+    );
+
+  }
+
+
+  pool = adaptivePool;
+
+
+  // =====================================
+  // PRIORIZAR DEBILIDADES
+  // =====================================
+
+  pool.sort((a,b) =>
+
+    priority(
+      topicBy(b.topicId) ||
+      {attempts:0,correct:0}
+    )
+
+    -
+
+    priority(
+      topicBy(a.topicId) ||
+      {attempts:0,correct:0}
+    )
+
+  );
+
+
+  const candidates =
+    pool.slice(
+      0,
+      Math.min(
+        pool.length,
+        Math.max(count * 2,count)
+      )
+    );
+
+
+  shuffle(candidates);
+
+
+  examQueue =
+    candidates.slice(0,count);
+
+  examIndex = 0;
+
+  examScore = 0;
+
+  examAnswers = [];
+
+
+  renderExam();
+
+}
 function renderExam(){
 
   const box = document.getElementById('examBox');
