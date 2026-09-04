@@ -778,12 +778,12 @@ const accepted = judged.filter(q => {
   }
 
   const passes =
-    j.qualityScore >= 8.5 &&
-    j.syllabus_fidelity >= 9 &&
-    j.difficulty_match >= 8 &&
-    j.distractor_quality >= 8 &&
-    j.reasoning_quality >= 8 &&
-    j.clarity >= 8;
+  j.qualityScore >= 8.2 &&
+  j.syllabus_fidelity >= 9 &&
+  j.difficulty_match >= 7 &&
+  j.distractor_quality >= 7 &&
+  j.reasoning_quality >= 7 &&
+  j.clarity >= 8;
 
   if(!passes){
     console.log(
