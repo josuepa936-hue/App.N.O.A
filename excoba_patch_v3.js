@@ -19,7 +19,130 @@
     {label:'Medicina · Biología', value:'EXCOBA Medicina · Biología'},
     {label:'Medicina · Química', value:'EXCOBA Medicina · Química'}
   ];
+const TRAINING_PROFILES = {
 
+  official:{
+    label:'Simulacro oficial',
+    official:1,
+    extended:0,
+    course:0,
+    challenge:false
+  },
+
+  extended:{
+    label:'Entrenamiento extendido',
+    official:0.55,
+    extended:0.30,
+    course:0.15,
+    challenge:false
+  },
+
+  course:{
+    label:'Curso + EXCOBA',
+    official:0.40,
+    extended:0.15,
+    course:0.45,
+    challenge:false
+  },
+
+  extreme:{
+    label:'Desafío extremo',
+    official:0.40,
+    extended:0.35,
+    course:0.25,
+    challenge:true
+  }
+
+};
+
+
+function getTrainingProfile(){
+
+  const key =
+    document.getElementById(
+      'excobaTrainingProfile'
+    )?.value || 'official';
+
+  return {
+    key,
+    ...(TRAINING_PROFILES[key] ||
+       TRAINING_PROFILES.official)
+  };
+
+}
+
+
+function ensureTrainingProfileSelector(){
+
+  if(
+    document.getElementById(
+      'excobaTrainingProfile'
+    )
+  ){
+    return;
+  }
+
+
+  const subjectSelect =
+    document.getElementById(
+      'excobaStudySubject'
+    );
+
+
+  if(!subjectSelect){
+    return;
+  }
+
+
+  const subjectField =
+    subjectSelect.closest('.field');
+
+
+  if(!subjectField){
+    return;
+  }
+
+
+  const field =
+    document.createElement('div');
+
+
+  field.className='field';
+
+
+  field.innerHTML=`
+
+    <label>
+      Modo de entrenamiento
+    </label>
+
+    <select id="excobaTrainingProfile">
+
+      <option value="official">
+        Simulacro oficial
+      </option>
+
+      <option value="extended">
+        Entrenamiento extendido
+      </option>
+
+      <option value="course">
+        Curso + EXCOBA
+      </option>
+
+      <option value="extreme">
+        Desafío extremo
+      </option>
+
+    </select>
+
+  `;
+
+
+  subjectField.parentElement
+    ?.appendChild(field);
+
+}
   function n(v){
     return String(v ?? '')
       .normalize('NFD')
@@ -1210,6 +1333,10 @@ beginExamQueue(
     expose();
 
     console.log('NOA EXCOBA Patch v3 activo · 9 materias + Quiz Engine v3');
+     setTimeout(
+  ensureTrainingProfileSelector,
+  500
+);
   }
 
   if(document.readyState==='loading'){
