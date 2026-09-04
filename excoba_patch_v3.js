@@ -996,20 +996,52 @@ async function generateQuestionsV3(target,count=5){
       if(btn)btn.disabled=true;
       setStatus(`NOA está construyendo ${count} reactivos de ${subject.replace(/^EXCOBA (Primaria|Secundaria|Medicina) · /,'')}…`);
 
-      const qs=await generateQuestionsV3(subject,count);
+      const qs=
+  await generateQuestionsV3(
+    subject,
+    count
+  );
 
-      const existing=new Set(db.questions.map(q=>n(q.text)));
-      const fresh=qs.filter(q=>!existing.has(n(q.text)));
 
-      if(!fresh.length){
-        throw new Error('Los reactivos generados ya estaban en el banco. Vuelve a intentarlo para obtener variantes.');
-      }
+// =====================================
+// GUARDAR SOLO REACTIVOS NUEVOS
+// =====================================
 
-      db.questions.push(...fresh);
-      act(`${fresh.length} reactivos EXCOBA creados de ${subject}`);
-      save();
+const existing=
+  new Set(
+    db.questions.map(q=>n(q.text))
+  );
 
-      const judgeScores = fresh
+
+const fresh=
+  qs.filter(q=>
+    !existing.has(
+      n(q.text)
+    )
+  );
+
+
+if(fresh.length){
+
+  db.questions.push(...fresh);
+
+}
+
+
+act(
+  `${qs.length} reactivos EXCOBA listos · ` +
+  `${fresh.length} nuevos guardados`
+);
+
+
+save();
+
+
+// =====================================
+// JUDGE DEL EXAMEN COMPLETO
+// =====================================
+
+const judgeScores = qs
   .map(q => q.judge?.qualityScore)
   .filter(Number.isFinite);
 
@@ -1024,15 +1056,29 @@ const judgeAverage = judgeScores.length
 
 setStatus(
   judgeAverage !== null
-    ? `✓ ${fresh.length} reactivos aprobados · calidad Judge: ${judgeAverage}/10`
-    : `✓ ${fresh.length} reactivos aprobados`
-);
-      safeToast(`${fresh.length} preguntas creadas`);
+    ? `✓ ${qs.length} reactivos listos · ` +
+      `${fresh.length} nuevos guardados · ` +
+      `calidad Judge: ${judgeAverage}/10`
 
-      beginExamQueue(
-        fresh,
-        `Cuestionario EXCOBA · ${subject.replace(/^EXCOBA (Primaria|Secundaria|Medicina) · /,'')}`
-      );
+    : `✓ ${qs.length} reactivos listos · ` +
+      `${fresh.length} nuevos guardados`
+);
+
+
+safeToast(
+  `${qs.length} preguntas creadas`
+);
+
+
+beginExamQueue(
+  qs,
+  `Cuestionario EXCOBA · ${
+    subject.replace(
+      /^EXCOBA (Primaria|Secundaria|Medicina) · /,
+      ''
+    )
+  }`
+);
 
     }catch(err){
       console.error('Cuestionario EXCOBA v3:',err);
