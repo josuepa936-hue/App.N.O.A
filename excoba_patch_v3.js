@@ -804,38 +804,116 @@ return accepted;
   }
 
   async function generateQuestionsV3(target,count=5){
-    const subject=canonicalSubject(target);
-    if(!subject)throw new Error('Materia no reconocida');
 
-    const wanted=Math.max(1,Math.min(30,Number(count)||5));
-    const all=[];
-    const seen=new Set();
-    let attempt=0;
+  const subject=canonicalSubject(target);
 
-    // Límite explícito: evita que el cuestionario se quede cargando para siempre.
-    const maxAttempts=Math.max(4,Math.ceil(wanted/3)*3);
+  if(!subject){
+    throw new Error('Materia no reconocida');
+  }
 
-    while(all.length<wanted && attempt<maxAttempts){
-      const needed=Math.min(3,wanted-all.length);
-      const batch=await generateQuestionBatchV3(subject,needed,attempt);
 
-      for(const q of batch){
-        const key=n(q.text);
-        if(!key || seen.has(key))continue;
-        seen.add(key);
-        all.push(q);
-        if(all.length>=wanted)break;
+  const wanted=
+    Math.max(
+      1,
+      Math.min(30,Number(count)||5)
+    );
+
+
+  const all=[];
+  const seen=new Set();
+
+
+  // =====================================
+  // GENERACIÓN RÁPIDA
+  // =====================================
+  // Antes: hasta 12 rondas de 3 preguntas.
+  // Ahora: máximo 2 rondas grandes.
+
+  const maxAttempts=2;
+
+  let attempt=0;
+
+
+  while(
+    all.length<wanted &&
+    attempt<maxAttempts
+  ){
+
+    const remaining=
+      wanted-all.length;
+
+
+    /*
+      Primera ronda:
+      pide todas las que faltan.
+
+      Como máximo generamos 10 por llamada
+      para evitar respuestas gigantes.
+    */
+
+    const requestCount=
+      Math.min(10,remaining);
+
+
+    setStatus(
+      `Generando reactivos… ${all.length}/${wanted}`
+    );
+
+
+    const batch=
+      await generateQuestionBatchV3(
+        subject,
+        requestCount,
+        attempt
+      );
+
+
+    for(const q of batch){
+
+      const key=n(q.text);
+
+      if(
+        !key ||
+        seen.has(key)
+      ){
+        continue;
       }
 
-      attempt++;
+
+      seen.add(key);
+
+      all.push(q);
+
+
+      if(all.length>=wanted){
+        break;
+      }
+
     }
 
-    if(!all.length){
-      throw new Error('Workers AI no produjo reactivos válidos. Intenta nuevamente.');
-    }
 
-    return all;
+    attempt++;
+
   }
+
+
+  // =====================================
+  // NO INICIAR EXÁMENES INCOMPLETOS
+  // =====================================
+
+  if(all.length<wanted){
+
+    throw new Error(
+      `NOA aprobó ${all.length} de ${wanted} reactivos. ` +
+      `No iniciaré un examen incompleto. Intenta nuevamente.`
+    );
+
+  }
+
+
+  return all.slice(0,wanted);
+
+}
 
   async function createQuizV3(target,count=10){
     const m=master();
