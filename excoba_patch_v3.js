@@ -832,7 +832,7 @@ if(accepted.length === 0){
 return accepted;
   }
 
-  async function generateQuestionsV3(target,count=5){
+async function generateQuestionsV3(target,count=5){
 
   const subject=canonicalSubject(target);
 
@@ -848,93 +848,152 @@ return accepted;
     );
 
 
+  // =====================================
+  // DIVIDIR EN BLOQUES PEQUEÑOS
+  // =====================================
+
+  const sizes=[];
+
+  let remaining=wanted;
+
+  while(remaining>0){
+
+    const size=Math.min(3,remaining);
+
+    sizes.push(size);
+
+    remaining-=size;
+
+  }
+
+
+  setStatus(
+    `Generando ${wanted} reactivos en ${sizes.length} bloques…`
+  );
+
+
+  // =====================================
+  // GENERAR BLOQUES EN PARALELO
+  // =====================================
+
+  const batches=
+    await Promise.all(
+
+      sizes.map((size,index)=>
+
+        generateQuestionBatchV3(
+          subject,
+          size,
+          index
+        )
+
+      )
+
+    );
+
+
   const all=[];
   const seen=new Set();
 
 
-  // =====================================
-  // GENERACIÓN RÁPIDA
-  // =====================================
-  // Antes: hasta 12 rondas de 3 preguntas.
-  // Ahora: máximo 2 rondas grandes.
+  function addQuestions(list){
 
-  const maxAttempts=2;
-
-  let attempt=0;
-
-
-  while(
-    all.length<wanted &&
-    attempt<maxAttempts
-  ){
-
-    const remaining=
-      wanted-all.length;
-
-
-    /*
-      Primera ronda:
-      pide todas las que faltan.
-
-      Como máximo generamos 10 por llamada
-      para evitar respuestas gigantes.
-    */
-
-    const requestCount=
-      Math.min(10,remaining);
-
-
-    setStatus(
-      `Generando reactivos… ${all.length}/${wanted}`
-    );
-
-
-    const batch=
-      await generateQuestionBatchV3(
-        subject,
-        requestCount,
-        attempt
-      );
-
-
-    for(const q of batch){
+    for(const q of list){
 
       const key=n(q.text);
 
-      if(
-        !key ||
-        seen.has(key)
-      ){
+      if(!key || seen.has(key)){
         continue;
       }
-
 
       seen.add(key);
 
       all.push(q);
 
-
-      if(all.length>=wanted){
-        break;
-      }
-
     }
 
+  }
 
-    attempt++;
+
+  for(const batch of batches){
+
+    addQuestions(batch);
 
   }
 
 
   // =====================================
-  // NO INICIAR EXÁMENES INCOMPLETOS
+  // UNA SOLA RONDA DE REPOSICIÓN
+  // =====================================
+
+  if(all.length<wanted){
+
+    const missing=
+      wanted-all.length;
+
+
+    setStatus(
+      `Reponiendo ${missing} reactivo${missing===1?'':'s'}…`
+    );
+
+
+    const retrySizes=[];
+
+    let retryRemaining=missing;
+
+
+    while(retryRemaining>0){
+
+      const size=
+        Math.min(3,retryRemaining);
+
+      retrySizes.push(size);
+
+      retryRemaining-=size;
+
+    }
+
+
+    const retries=
+      await Promise.all(
+
+        retrySizes.map((size,index)=>
+
+          generateQuestionBatchV3(
+
+            subject,
+
+            size,
+
+            sizes.length + index
+
+          )
+
+        )
+
+      );
+
+
+    for(const batch of retries){
+
+      addQuestions(batch);
+
+    }
+
+  }
+
+
+  // =====================================
+  // EXIGIR CANTIDAD COMPLETA
   // =====================================
 
   if(all.length<wanted){
 
     throw new Error(
+
       `NOA aprobó ${all.length} de ${wanted} reactivos. ` +
-      `No iniciaré un examen incompleto. Intenta nuevamente.`
+      `Faltaron ${wanted-all.length}.`
+
     );
 
   }
