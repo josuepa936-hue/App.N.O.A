@@ -382,6 +382,15 @@ async function analyzeCourseSource(sourceId){
       source.subject
     );
 
+   const allowedCodes =
+  new Set(
+    officialItems.map(item =>
+      String(item.code || '')
+        .trim()
+        .replace(/\.$/,'')
+    )
+  );
+
 
   const officialText =
     officialItems.length
@@ -579,14 +588,21 @@ FORMATO EXACTO:
                   ? c.depth
                   : 'intermediate',
 
-              syllabus_codes:
-                Array.isArray(
-                  c.syllabus_codes
-                )
-                  ? c.syllabus_codes
-                      .map(String)
-                      .slice(0,8)
-                  : []
+             syllabus_codes:
+  Array.isArray(
+    c.syllabus_codes
+  )
+    ? c.syllabus_codes
+        .map(code =>
+          String(code || '')
+            .trim()
+            .replace(/\.$/,'')
+        )
+        .filter(code =>
+          allowedCodes.has(code)
+        )
+        .slice(0,8)
+    : []
 
             }))
             .filter(c => c.name)
@@ -660,8 +676,15 @@ FORMATO EXACTO:
                   )
                 )
 
-            }))
-            .filter(link => link.code)
+         }))
+.filter(link =>
+  link.code &&
+  allowedCodes.has(
+    String(link.code)
+      .trim()
+      .replace(/\.$/,'')
+  )
+)
 
         : [],
 
