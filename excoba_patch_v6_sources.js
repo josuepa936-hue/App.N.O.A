@@ -1439,7 +1439,8 @@ inhibición competitiva..."
       )
       ?.addEventListener(
         'click',
-        () => {
+        async () => {
+           
 
           const input =
             document.getElementById(
