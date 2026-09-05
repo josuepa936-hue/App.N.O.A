@@ -1278,12 +1278,15 @@ function renderSourceAnalysis(source){
 
 
     const card =
-      subjectSelect.closest('.card');
+  document.getElementById(
+    'excobaStudyTools'
+  ) ||
+  subjectSelect.closest('.card');
 
 
-    if(!card){
-      return;
-    }
+if(!card){
+  return;
+}
 
 
     const block =
