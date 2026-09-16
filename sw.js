@@ -42,6 +42,8 @@ const ASSETS = [
 
   './excoba_patch_v17_drag_order.js',
 
+  './excoba_patch_v18_drag_order_renderer.js',
+
   './noa-192.png',
 
   './noa-512.png'
