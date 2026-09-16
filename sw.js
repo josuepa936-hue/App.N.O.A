@@ -34,6 +34,8 @@ const ASSETS = [
 
   './excoba_patch_v13_mixed_exam.js',
 
+  './excoba_patch_v14_inline_select.js',
+
   './noa-192.png',
 
   './noa-512.png'
