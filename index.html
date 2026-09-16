@@ -2436,8 +2436,69 @@ function renderTimer(){let m=Math.floor(timerSeconds/60),s=timerSeconds%60;docum
 function toggleTimer(){if(timerHandle){clearInterval(timerHandle);timerHandle=null;document.getElementById('timerBtn').textContent='Continuar';return}timerStart=timerStart||new Date();document.getElementById('timerBtn').textContent='Pausar';timerHandle=setInterval(()=>{timerSeconds--;renderTimer();if(timerSeconds<=0){clearInterval(timerHandle);timerHandle=null;let mins=Math.round(timerDefault/60);db.sessions.push({id:uid(),minutes:mins,at:new Date().toISOString()});act(`Sesión de enfoque completada: ${mins} min`);save();toast('Sesión completada');timerSeconds=timerDefault;timerStart=null;renderTimer();document.getElementById('timerBtn').textContent='Iniciar'}},1000)}
 function resetTimer(){if(timerHandle)clearInterval(timerHandle);timerHandle=null;timerSeconds=timerDefault;timerStart=null;renderTimer();document.getElementById('timerBtn').textContent='Iniciar'}
 function renderSessions(){let e=document.getElementById('sessionList');e.innerHTML=db.sessions.slice().reverse().slice(0,20).map(s=>`<div class="item"><b>${s.minutes} min</b><div class="small">${fmtDate(s.at)}</div></div>`).join('')||'<p class="muted">Sin sesiones registradas.</p>'}
+function exportData(){
 
-function exportData(){let blob=new Blob([JSON.stringify(db,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='NOA_backup_'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+  // Crear una copia independiente de la base
+  const safeBackup =
+    JSON.parse(
+      JSON.stringify(db)
+    );
+
+
+  // Nunca exportar credenciales
+  if(safeBackup.settings){
+
+    delete safeBackup
+      .settings
+      .bridgeToken;
+
+  }
+
+
+  const blob =
+    new Blob(
+      [
+        JSON.stringify(
+          safeBackup,
+          null,
+          2
+        )
+      ],
+      {
+        type:
+          'application/json'
+      }
+    );
+
+
+  const a =
+    document.createElement('a');
+
+
+  a.href =
+    URL.createObjectURL(blob);
+
+
+  a.download =
+    'NOA_backup_' +
+    new Date()
+      .toISOString()
+      .slice(0,10) +
+    '.json';
+
+
+  a.click();
+
+
+  setTimeout(
+    () =>
+      URL.revokeObjectURL(
+        a.href
+      ),
+    1000
+  );
+
+}
 document.getElementById('backupInput').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let x=JSON.parse(await f.text());if(!x.version)throw 0;db=Object.assign(blank(),x);save();toast('Copia restaurada')}catch(err){toast('Archivo de copia inválido')}};
 function resetAll(){if(confirm('Esto borrará TODOS los datos de NOA en este navegador.')){db=blank();save();toast('Datos borrados')}}
 document.getElementById('coachInput').addEventListener('keydown',e=>{if(e.key==='Enter')askCoach()});
