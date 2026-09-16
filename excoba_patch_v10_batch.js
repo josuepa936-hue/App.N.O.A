@@ -38,6 +38,77 @@
 
   }
 
+   function questionKey(
+  question,
+  fallback=''
+){
+
+  if(!question){
+    return String(fallback);
+  }
+
+
+  const parts = [
+
+    question.interactionType || '',
+
+    question.text || '',
+
+    question.stem || '',
+
+    question.instruction || '',
+
+
+    ...(
+      Array.isArray(
+        question.options
+      )
+        ? question.options
+        : []
+    ),
+
+
+    ...(
+      Array.isArray(
+        question.elements
+      )
+        ? question.elements.map(
+            element =>
+              element?.text || ''
+          )
+        : []
+    ),
+
+
+    ...(
+      Array.isArray(
+        question.targets
+      )
+        ? question.targets.map(
+            target =>
+              target?.label || ''
+          )
+        : []
+    )
+
+  ];
+
+
+  const key =
+    norm(
+      parts
+        .filter(Boolean)
+        .join(' | ')
+    );
+
+
+  return (
+    key ||
+    String(fallback)
+  );
+
+}
+
 
   function clamp(value,min,max){
 
@@ -478,11 +549,10 @@
 
 
         const key =
-          norm(
-            item
-              .question
-              .text
-          );
+  questionKey(
+    item.question,
+    `slot:${slot.slotId}`
+  );
 
 
         const duplicate =
