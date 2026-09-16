@@ -38,6 +38,8 @@ const ASSETS = [
 
   './excoba_patch_v15_inline_renderer.js',
 
+  './excoba_patch_v16_inline_mixed.js',
+
   './noa-192.png',
 
   './noa-512.png'
