@@ -26,6 +26,8 @@ const ASSETS = [
 
   './excoba_patch_v9_generator.js',
 
+  './excoba_patch_v10_batch.js',
+
   './noa-192.png',
 
   './noa-512.png'
