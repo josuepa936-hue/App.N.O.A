@@ -510,6 +510,15 @@ REGLAS:
 
 - debe existir una única secuencia
   académicamente defendible.
+
+- cada elemento debe representar
+  una etapa, evento, nivel o paso
+  SEMÁNTICAMENTE DISTINTO.
+
+- no generes dos elementos que
+  describan esencialmente la misma
+  entidad o etapa con palabras distintas.
+
 - evita pasos intercambiables.
 - evita pistas como "primero",
   "después", "finalmente" dentro
@@ -653,6 +662,12 @@ order_uniqueness
 = los elementos no pueden intercambiarse
 sin alterar la lógica.
 
+semantic_distinctness
+= cada elemento representa una etapa
+realmente distinta; no hay duplicados
+conceptuales, solapamientos ni dos
+formas de describir el mismo nivel.
+
 item_quality
 = los pasos son claros y útiles.
 
@@ -729,6 +744,7 @@ DEVUELVE:
   "difficulty_match":10,
   "sequence_validity":10,
   "order_uniqueness":10,
+   "semantic_distinctness":10,
   "item_quality":10,
   "reasoning_quality":10,
   "ambiguity_control":10,
@@ -757,6 +773,8 @@ DEVUELVE:
       'sequence_validity',
 
       'order_uniqueness',
+
+       'semantic_distinctness',
 
       'item_quality',
 
@@ -840,6 +858,9 @@ DEVUELVE:
 
       resultJudge
         .order_uniqueness >= 8 &&
+
+       resultJudge
+  .semantic_distinctness >= 8 &&
 
       resultJudge
         .item_quality >= 7 &&
