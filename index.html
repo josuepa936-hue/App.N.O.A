@@ -2644,7 +2644,7 @@ function speak(text){
 function initVoice(){
   const info=document.getElementById('recognitionInfo');
   if(!SR){
-    info.innerHTML='<b>Reconocimiento no disponible en este navegador.</b> Usa Google Chrome y abre NOA mediante ABRIR_NOA_VOZ.cmd. La barra de comandos escrita seguirá funcionando.';
+    info.innerHTML='<b>Reconocimiento de voz no disponible en este navegador.</b> Puedes seguir utilizando los comandos escritos de NOA.';
     document.getElementById('voiceStatus').textContent='Voz no disponible · usa comandos escritos';
     return;
   }
