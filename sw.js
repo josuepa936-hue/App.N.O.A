@@ -1,4 +1,4 @@
-const CACHE='noa-mobile-v6-30';
+const CACHE='noa-mobile-v6-31';
 const ASSETS=[
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS=[
   './excoba_patch_v4.js',
   './excoba_patch_v5.js',
 './excoba_patch_v6_sources.js',
+  './excoba_patch_v7_realism.js',
   './noa-192.png',
   './noa-512.png'
 ];
