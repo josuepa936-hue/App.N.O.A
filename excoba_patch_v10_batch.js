@@ -82,14 +82,26 @@
 
     ...(
       Array.isArray(
-        question.targets
+    question.targets
+  )
+    ? question.targets.map(
+        target =>
+          target?.label || ''
       )
-        ? question.targets.map(
-            target =>
-              target?.label || ''
-          )
-        : []
-    )
+    : []
+),
+
+
+...(
+  Array.isArray(
+    question.items
+  )
+    ? question.items.map(
+        item =>
+          item?.text || ''
+      )
+    : []
+)
 
   ];
 
