@@ -354,22 +354,68 @@
       // =================================
 
       if(
-        question
-          ?.interactionType ===
-        'drag_order'
-      ){
+  question
+    ?.interactionType ===
+  'drag_order'
+){
 
-        return renderOrderQuestion(
-          question
+  return renderOrderQuestion(
+    question
+  );
+
+}
+
+
+// =================================
+// SINGLE SELECT
+// =================================
+//
+// Las preguntas normales se dibujan
+// dentro de #examBox, que está debajo
+// de los paneles superiores.
+//
+// Después de cerrar un renderer
+// interactivo, desplazamos la pantalla
+// automáticamente hacia el reactivo.
+
+if(
+  question
+    ?.interactionType ===
+  'single_select'
+){
+
+  const result =
+    previousRenderExam();
+
+
+  setTimeout(
+    () => {
+
+      const box =
+        document.getElementById(
+          'examBox'
         );
 
-      }
+
+      box?.scrollIntoView({
+        behavior:'smooth',
+        block:'start'
+      });
+
+    },
+    50
+  );
 
 
-      // Los demás formatos siguen
-      // hacia v16 → v13.
+  return result;
 
-      return previousRenderExam();
+}
+
+
+// inline_select y drag_classify
+// conservan sus renderers flotantes.
+
+return previousRenderExam();
 
     };
 
