@@ -1,5 +1,5 @@
 const CACHE =
-  'noa-mobile-v6-45';
+  'noa-mobile-v6-46';
 
 
 const ASSETS = [
@@ -43,6 +43,8 @@ const ASSETS = [
   './excoba_patch_v17_drag_order.js',
 
   './excoba_patch_v18_drag_order_renderer.js',
+
+  './excoba_patch_v19_drag_order_mixed.js',
 
   './noa-192.png',
 
