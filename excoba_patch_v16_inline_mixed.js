@@ -23,6 +23,8 @@
   const recorded =
     new Set();
 
+  let recordedAnswers = null;
+
 
   // =====================================
   // DEPENDENCIAS
@@ -451,6 +453,15 @@
       !state.score
     ){
       return;
+    }
+
+
+    // v13 crea este array en ambos caminos de inicio.
+    // Reiniciar solo al cambiar de examen conserva la
+    // protección al restaurar o revisar una respuesta.
+    if(recordedAnswers !== examAnswers){
+      recorded.clear();
+      recordedAnswers = examAnswers;
     }
 
 
