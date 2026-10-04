@@ -1716,6 +1716,24 @@
   // =====================================
 
   document.addEventListener(
+    'keydown',
+
+    event => {
+
+      if(
+        ['Enter',' '].includes(event.key) &&
+        event.target?.closest?.('.noa-map-cell')
+      ){
+        navigationAttempt(event);
+      }
+
+    },
+
+    true
+  );
+
+
+  document.addEventListener(
     'click',
 
     event => {
