@@ -24,6 +24,8 @@
 
   let revision = null;
 
+  let revisionBannerObserver = null;
+
 
   // =====================================
   // DEPENDENCIAS
@@ -359,6 +361,9 @@
 
   function closeRenderers(){
 
+    revisionBannerObserver?.disconnect();
+    revisionBannerObserver = null;
+
     try{
 
       window
@@ -680,7 +685,8 @@
     }
 
 
-    injectRevisionBanner(
+    observeRevisionBanner(
+      'noaDragRendererRoot',
       '.noa-drag-question'
     );
 
@@ -759,7 +765,8 @@
     }
 
 
-    injectRevisionBanner(
+    observeRevisionBanner(
+      'noaInlineRendererRoot',
       '.noa-inline-card'
     );
 
@@ -867,7 +874,8 @@
     }
 
 
-    injectRevisionBanner(
+    observeRevisionBanner(
+      'noaOrderRendererRoot',
       '.noa-order-card'
     );
 
@@ -878,17 +886,48 @@
   // BANNER
   // =====================================
 
-  function injectRevisionBanner(
+  function observeRevisionBanner(
+    rootId,
     selector
   ){
 
+    const root = document.getElementById(rootId);
+    const activeRevision = revision;
+
+    if(!root || !activeRevision){
+      return;
+    }
+
+    injectRevisionBanner(selector, root);
+
+    revisionBannerObserver = new MutationObserver(() => {
+      if(revision === activeRevision && root.isConnected){
+        injectRevisionBanner(selector, root);
+      }
+    });
+
+    // Los renderers reemplazan root.innerHTML al editar.
+    // Observar solo sus hijos evita reaccionar al propio banner.
+    revisionBannerObserver.observe(root, {childList:true});
+
+  }
+
+
+  function injectRevisionBanner(
+    selector,
+    root
+  ){
+
     const container =
-      document.querySelector(
+      root.querySelector(
         selector
       );
 
 
-    if(!container){
+    if(
+      !container ||
+      container.querySelector('.noa-revision-banner')
+    ){
       return;
     }
 
