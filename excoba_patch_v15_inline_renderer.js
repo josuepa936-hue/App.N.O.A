@@ -426,6 +426,7 @@
     ){
 
       resultClass =
+        selected !== null &&
         Number(selected) ===
         blank.correct
 
@@ -480,6 +481,7 @@
                   value="${index}"
 
                   ${
+                    selected !== null &&
                     Number(selected) ===
                     index
                       ? 'selected'
@@ -818,9 +820,9 @@
 
 
               const value =
-                Number(
-                  select.value
-                );
+                select.value === ''
+                  ? null
+                  : Number(select.value);
 
 
               activeState
@@ -904,6 +906,7 @@
 
 
         if(
+          selected !== null &&
           Number(selected) ===
           blank.correct
         ){
@@ -981,6 +984,7 @@
 
 
             const ok =
+              selectedIndex !== null &&
               Number(
                 selectedIndex
               ) ===
