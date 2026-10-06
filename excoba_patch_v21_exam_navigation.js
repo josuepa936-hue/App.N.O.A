@@ -32,6 +32,16 @@
   let renderGeneration = 0;
   let pendingRestore = null;
 
+  let observedAnswers = null;
+  let shellObserver = null;
+
+  function deferForSession(callback, delay){
+    const answers = examAnswers;
+    setTimeout(() => {
+      if(answers === examAnswers) callback();
+    }, delay);
+  }
+
 
   // =====================================
   // DEPENDENCIAS
@@ -1400,11 +1410,17 @@
         '1';
 
 
+    const answers = examAnswers;
+    shellObserver?.disconnect();
     const observer =
       new MutationObserver(
         () => {
 
-          setTimeout(
+          if(answers !== examAnswers || !shell.isConnected){
+            return;
+          }
+
+          deferForSession(
             () => {
 
               injectShellControls();
@@ -1426,6 +1442,8 @@
         subtree:true
       }
     );
+
+    shellObserver = observer;
 
   }
 
@@ -1871,7 +1889,7 @@
         );
 
 
-        setTimeout(
+        deferForSession(
           () => {
 
             injectShellControls();
@@ -1948,6 +1966,16 @@
       ...args
     ){
 
+      if(mixedState().mixedMode && observedAnswers !== examAnswers){
+        observedAnswers = examAnswers;
+        drafts.clear();
+        pendingRestore = null;
+        restoring = false;
+        shellObserver?.disconnect();
+        shellObserver = null;
+      }
+
+      // La generación sigue siendo monotónica entre sesiones.
       const generation = ++renderGeneration;
       const renderedIndex = examIndex;
       const renderedQuestion = currentQuestion();
@@ -2204,7 +2232,7 @@
           )
       ){
 
-        setTimeout(
+        deferForSession(
           refreshMap,
           20
         );

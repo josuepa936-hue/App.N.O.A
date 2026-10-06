@@ -26,6 +26,15 @@
 
   let revisionBannerObserver = null;
 
+  let observedAnswers = null;
+
+  function deferForSession(callback, delay){
+    const answers = examAnswers;
+    setTimeout(() => {
+      if(answers === examAnswers) callback();
+    }, delay);
+  }
+
 
   // =====================================
   // DEPENDENCIAS
@@ -586,7 +595,7 @@
     renderExam();
 
 
-    setTimeout(
+    deferForSession(
       () => {
 
         window
@@ -1694,6 +1703,12 @@
       ...args
     ){
 
+      if(mixedState().mixedMode && observedAnswers !== examAnswers){
+        observedAnswers = examAnswers;
+        revision = null;
+        closeRenderers();
+      }
+
       const result =
         previousRenderExam
           .apply(
@@ -1702,7 +1717,7 @@
           );
 
 
-      setTimeout(
+      deferForSession(
         injectEditButton,
         130
       );
@@ -1737,7 +1752,7 @@
           );
 
 
-        setTimeout(
+        deferForSession(
           injectEditButton,
           80
         );
@@ -1971,7 +1986,7 @@
           )
       ){
 
-        setTimeout(
+        deferForSession(
           injectEditButton,
           100
         );
