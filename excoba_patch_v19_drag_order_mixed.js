@@ -24,6 +24,8 @@
 
   let recordedAnswers = null;
 
+  let renderGeneration = 0;
+
 
   // =====================================
   // DEPENDENCIAS
@@ -306,6 +308,8 @@
   window.renderExam =
     function(){
 
+      const generation = ++renderGeneration;
+
       const state =
         mixedState();
 
@@ -386,12 +390,24 @@ if(
   'single_select'
 ){
 
+  const renderedAnswers = examAnswers;
+  const renderedIndex = examIndex;
+
   const result =
     previousRenderExam();
 
 
   setTimeout(
     () => {
+
+      if(
+        generation !== renderGeneration ||
+        renderedAnswers !== examAnswers ||
+        renderedIndex !== examIndex ||
+        question !== examQueue[examIndex]
+      ){
+        return;
+      }
 
       const box =
         document.getElementById(
