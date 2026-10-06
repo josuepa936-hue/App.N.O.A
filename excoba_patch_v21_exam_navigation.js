@@ -29,6 +29,9 @@
   let restoring =
     false;
 
+  let renderGeneration = 0;
+  let pendingRestore = null;
+
 
   // =====================================
   // DEPENDENCIAS
@@ -449,6 +452,14 @@
         q,
         examIndex
       );
+
+    if(
+      pendingRestore?.generation === renderGeneration &&
+      pendingRestore.index === examIndex &&
+      pendingRestore.key === key
+    ){
+      return;
+    }
 
 
     // =================================
@@ -1094,6 +1105,14 @@
       restoring =
         false;
 
+    }
+
+    if(
+      pendingRestore?.generation === renderGeneration &&
+      pendingRestore.index === examIndex &&
+      pendingRestore.key === questionKey(q, examIndex)
+    ){
+      pendingRestore = null;
     }
 
   }
@@ -1929,6 +1948,20 @@
       ...args
     ){
 
+      const generation = ++renderGeneration;
+      const renderedIndex = examIndex;
+      const renderedQuestion = currentQuestion();
+      const renderedKey = questionKey(renderedQuestion, renderedIndex);
+
+      // Proteger el borrador antes de que el renderer abra vacío.
+      pendingRestore =
+        mixedState().mixedMode &&
+        renderedQuestion &&
+        !isAnswered(renderedQuestion) &&
+        drafts.has(renderedKey)
+          ? {generation, index:renderedIndex, key:renderedKey}
+          : null;
+
       const result =
         previousRenderExam
           .apply(
@@ -1939,6 +1972,14 @@
 
       setTimeout(
         () => {
+
+          if(
+            generation !== renderGeneration ||
+            renderedIndex !== examIndex ||
+            renderedKey !== questionKey(currentQuestion(), examIndex)
+          ){
+            return;
+          }
 
           const mixed =
             mixedState();
