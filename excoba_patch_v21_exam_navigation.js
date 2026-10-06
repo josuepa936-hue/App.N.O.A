@@ -5,7 +5,7 @@
 
    - mapa de reactivos clicable
    - anterior / siguiente
-   - finalizar cuando el usuario decida
+   - finalizar cuando todos los reactivos estén respondidos
    - conserva borradores interactivos
    - restaura:
        drag_classify
@@ -211,6 +211,10 @@
 
 
     style.textContent = `
+
+      body.noa-shell-active #toast{
+        z-index:12001;
+      }
 
       .noa-shell-nav{
 
@@ -1718,9 +1722,6 @@
     }
 
 
-    saveCurrentDraft();
-
-
     const answered =
       examQueue.filter(
         question =>
@@ -1739,27 +1740,23 @@
       pending > 0
     ){
 
-      const proceed =
-        window.confirm(
-
-          `Aún tienes ${pending} ` +
-          (
-            pending === 1
-              ? 'reactivo sin responder.'
-              : 'reactivos sin responder.'
-          ) +
-          '\n\n' +
-          'Si finalizas ahora, se contarán ' +
-          'sin puntuación.'
-
-        );
+      toast(
+        `Aún tienes ${pending} ` +
+        (
+          pending === 1
+            ? 'reactivo sin responder.'
+            : 'reactivos sin responder.'
+        ) +
+        ' Completa los pendientes antes de ver el resultado.'
+      );
 
 
-      if(!proceed){
-        return;
-      }
+      return;
 
     }
+
+
+    saveCurrentDraft();
 
 
     sortAnswers();
@@ -2029,6 +2026,33 @@
   // =====================================
   // EVENTOS
   // =====================================
+
+  // Ver resultado debe comprobar pendientes antes de que
+  // los motores mixtos cierren el renderer e incrementen examIndex.
+  document.addEventListener(
+    'click',
+
+    event => {
+
+      if(
+        mixedState().mixedMode &&
+        examIndex === examQueue.length - 1 &&
+        event.target?.closest?.(
+          '#noaMixedContinue,' +
+          '#noaInlineMixedContinue,' +
+          '#noaOrderMixedContinue'
+        )
+      ){
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finishExam();
+      }
+
+    },
+
+    true
+  );
+
 
   document.addEventListener(
     'click',
