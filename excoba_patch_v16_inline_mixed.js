@@ -468,10 +468,15 @@
     const key =
       `${examIndex}:${q.id}`;
 
+    const existing =
+      examAnswers.find(answer => answer.questionId === q.id);
 
     if(
-      recorded.has(key)
+      recorded.has(key) || existing
     ){
+      if(existing){
+        addContinueButton(existing.scoreFraction ?? (existing.ok ? 1 : 0));
+      }
       return;
     }
 

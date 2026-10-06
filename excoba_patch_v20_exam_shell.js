@@ -1391,6 +1391,18 @@
   // API
   // =====================================
 
+  function restoreSessionClock(snapshot){
+    if(!state().mixedMode || !snapshot) return;
+    const now = Date.now();
+    const elapsed = Number.isFinite(snapshot.elapsed)
+      ? Math.max(0, snapshot.elapsed) : 0;
+    startedAt = Number.isFinite(snapshot.startedAt) && snapshot.startedAt > 0
+      ? Math.min(snapshot.startedAt, now - elapsed * 1000)
+      : now - elapsed * 1000;
+    mapOpen = snapshot.mapOpen === true;
+    sync();
+  }
+
   window.NOA_EXAM_SHELL = {
 
     version:
@@ -1399,6 +1411,9 @@
     sync,
 
     deactivate,
+
+    restore:
+      restoreSessionClock,
 
     state:
       () => ({

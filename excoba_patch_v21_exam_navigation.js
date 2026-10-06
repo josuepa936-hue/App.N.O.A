@@ -35,6 +35,13 @@
   let observedAnswers = null;
   let shellObserver = null;
 
+  let recoverySnapshot = null;
+  let recoveringSession = false;
+  let checkpointAnswers = null;
+  let sessionDatabase = null;
+  let sessionTitle = '';
+  let storageWarning = false;
+
   function deferForSession(callback, delay){
     const answers = examAnswers;
     setTimeout(() => {
@@ -156,6 +163,203 @@
       null
     );
 
+  }
+
+
+  // El checkpoint comparte la escritura de db con el dominio de los temas.
+  // Nunca reejecuta respuestas para reconstruir la puntuación guardada.
+  function editorSnapshot(question){
+    const type = question?.interactionType || 'single_select';
+    const renderer = {
+      drag_classify:window.NOA_DRAG_RENDERER,
+      inline_select:window.NOA_INLINE_RENDERER,
+      drag_order:window.NOA_DRAG_ORDER_RENDERER
+    }[type];
+    const state = renderer?.getState?.();
+    if(!state || String(state.question?.id) !== String(question?.id)) return null;
+    if(type === 'drag_classify'){
+      return {type, assignments:clone(state.assignments), selectedItemId:state.selectedItemId ?? null};
+    }
+    if(type === 'inline_select') return {type, selections:clone(state.selections)};
+    return {type, order:[...state.order]};
+  }
+
+  function persistSession(){
+    if(recoveringSession || restoring || sessionDatabase !== db || !checkpointAnswers){
+      return false;
+    }
+    try{
+      if(examQueue.length && examIndex >= 0 && examIndex < examQueue.length){
+        const mixed = mixedState().mixedMode;
+        if(mixed){
+          saveCurrentDraft();
+          const question = currentQuestion();
+          // Responder puede haber cerrado el renderer antes de record*(0).
+          // Conservar el envío pendiente permite completarlo una sola vez al recuperar.
+          if(!answerFor(question) && !pendingRestore){
+            const snapshot = editorSnapshot(question);
+            const renderer = {
+              drag_classify:window.NOA_DRAG_RENDERER,
+              inline_select:window.NOA_INLINE_RENDERER,
+              drag_order:window.NOA_DRAG_ORDER_RENDERER
+            }[snapshot?.type];
+            if(snapshot && renderer?.getState?.()?.submitted){
+              drafts.set(questionKey(question, examIndex), {...snapshot, submitted:true});
+            }
+          }
+        }
+        db.activeExam = {
+          version:1,
+          mixed,
+          title:sessionTitle,
+          queue:clone(examQueue),
+          index:examIndex,
+          score:examScore,
+          answers:clone(examAnswers),
+          drafts:mixed ? clone([...drafts]) : [],
+          clock:mixed ? window.NOA_EXAM_SHELL.state() : null,
+          revision:mixed ? window.NOA_ANSWER_REVISION?.capture?.() || null : null
+        };
+      }else{
+        delete db.activeExam;
+      }
+      localStorage.setItem(KEY, JSON.stringify(db));
+      storageWarning = false;
+      const status = document.getElementById('saveState');
+      if(status) status.textContent = 'Guardado automático ✓';
+      return true;
+    }catch(err){
+      const status = document.getElementById('saveState');
+      if(status) status.textContent = 'No se pudo guardar el examen';
+      if(!storageWarning && typeof toast === 'function'){
+        toast('No pude guardar el examen. Mantén esta pestaña abierta.');
+      }
+      storageWarning = true;
+      return false;
+    }
+  }
+
+  function deferCheckpoint(){
+    if(recoveringSession || restoring) return;
+    const answers = examAnswers;
+    // Los motores registran el envío en un timeout de 0 ms.
+    setTimeout(() => setTimeout(() => {
+      if(answers === examAnswers) persistSession();
+    }, 0), 0);
+  }
+
+  function validEditor(question, editor){
+    if(!editor || typeof editor !== 'object' || Array.isArray(editor)) return false;
+    const type = question.interactionType || 'single_select';
+    if(type === 'single_select') return true;
+    if(type === 'inline_select'){
+      const selections = editor.selections;
+      return selections && typeof selections === 'object' && !Array.isArray(selections) &&
+        Object.keys(selections).length === question.blanks.length &&
+        question.blanks.every(blank => selections[blank.id] === null ||
+          Number.isInteger(selections[blank.id]) && selections[blank.id] >= 0 &&
+          selections[blank.id] < blank.options.length);
+    }
+    if(type === 'drag_classify'){
+      const assignments = editor.assignments;
+      return assignments && typeof assignments === 'object' && !Array.isArray(assignments) &&
+        Object.keys(assignments).length === question.elements.length &&
+        question.elements.every(item => assignments[item.id] === null ||
+          question.targets.some(target => target.id === assignments[item.id])) &&
+        (editor.selectedItemId == null ||
+          question.elements.some(item => item.id === editor.selectedItemId));
+    }
+    return Array.isArray(editor.order) && editor.order.length === question.items.length &&
+      new Set(editor.order).size === question.items.length &&
+      question.items.every(item => editor.order.includes(item.id));
+  }
+
+  function validRecovery(snapshot){
+    if(!snapshot || snapshot.version !== 1 || typeof snapshot.mixed !== 'boolean' ||
+      !Array.isArray(snapshot.queue) || !snapshot.queue.length ||
+      !Number.isInteger(snapshot.index) || snapshot.index < 0 || snapshot.index >= snapshot.queue.length ||
+      !Number.isFinite(snapshot.score) || snapshot.score < 0 || snapshot.score > snapshot.queue.length ||
+      !Array.isArray(snapshot.answers) || !Array.isArray(snapshot.drafts)) return false;
+    const questions = new Map();
+    for(const question of snapshot.queue){
+      const type = question?.interactionType || 'single_select';
+      const id = String(question?.id || '');
+      if(!id || questions.has(id) ||
+        !['single_select','drag_classify','inline_select','drag_order'].includes(type) ||
+        !snapshot.mixed && type !== 'single_select') return false;
+      if(type === 'single_select' && (!Array.isArray(question.options) ||
+        !Number.isInteger(question.correct) || question.correct < 0 || question.correct >= question.options.length)) return false;
+      if(type === 'inline_select' && (!Array.isArray(question.blanks) || !question.blanks.length ||
+        new Set(question.blanks.map(blank => blank.id)).size !== question.blanks.length ||
+        question.blanks.some(blank => !Array.isArray(blank.options) || !blank.options.length ||
+          !Number.isInteger(blank.correct) || blank.correct < 0 || blank.correct >= blank.options.length))) return false;
+      if(type === 'drag_classify' && (!Array.isArray(question.elements) || !question.elements.length ||
+        !Array.isArray(question.targets) || !question.targets.length ||
+        new Set(question.elements.map(item => item.id)).size !== question.elements.length ||
+        new Set(question.targets.map(target => target.id)).size !== question.targets.length)) return false;
+      if(type === 'drag_order' && (!Array.isArray(question.items) || !question.items.length ||
+        new Set(question.items.map(item => item.id)).size !== question.items.length ||
+        !Array.isArray(question.correctOrder) || question.correctOrder.length !== question.items.length ||
+        new Set(question.correctOrder).size !== question.items.length ||
+        !question.items.every(item => question.correctOrder.includes(item.id)))) return false;
+      questions.set(id, question);
+    }
+    const answered = new Set();
+    let credit = 0;
+    for(const answer of snapshot.answers){
+      const id = String(answer?.questionId || '');
+      const question = questions.get(id);
+      if(!question || answer.questionId !== question.id || answered.has(id) ||
+        !validEditor(question, answer)) return false;
+      if((question.interactionType || 'single_select') === 'single_select' &&
+        (!Number.isInteger(answer.selected) || answer.selected < 0 || answer.selected >= question.options.length ||
+          answer.correctIndex !== question.correct)) return false;
+      if(answer.scoreFraction !== undefined &&
+        (!Number.isFinite(answer.scoreFraction) || answer.scoreFraction < 0 || answer.scoreFraction > 1)) return false;
+      credit += answer.scoreFraction ?? (answer.ok ? 1 : 0);
+      answered.add(id);
+    }
+    if(Math.abs(credit - snapshot.score) > 0.000001) return false;
+    for(const entry of snapshot.drafts){
+      if(!Array.isArray(entry) || entry.length !== 2 || !questions.has(String(entry[0])) ||
+        entry[1]?.type !== (questions.get(String(entry[0])).interactionType || 'single_select') ||
+        entry[1].submitted !== undefined && typeof entry[1].submitted !== 'boolean' ||
+        !validEditor(questions.get(String(entry[0])), entry[1])) return false;
+    }
+    if(snapshot.revision){
+      const question = snapshot.queue[snapshot.index];
+      if(!snapshot.mixed || snapshot.revision.index !== snapshot.index ||
+        String(snapshot.revision.questionId) !== String(question.id) ||
+        snapshot.revision.type !== (question.interactionType || 'single_select') ||
+        !answered.has(String(question.id)) || !validEditor(question, snapshot.revision.editor)) return false;
+    }
+    return !snapshot.mixed || snapshot.clock && Number.isFinite(snapshot.clock.startedAt) &&
+      Number.isFinite(snapshot.clock.elapsed) && snapshot.clock.elapsed >= 0;
+  }
+
+  function recoverSession(){
+    if(!db.activeExam) return false;
+    try{
+      const snapshot = clone(db.activeExam);
+      if(!validRecovery(snapshot)) throw new Error('Checkpoint incompatible');
+      recoveringSession = true;
+      recoverySnapshot = snapshot;
+      if(snapshot.mixed){
+        window.NOA_MIXED_EXAM.start(snapshot.queue, snapshot.title);
+      }else{
+        beginExamQueue(snapshot.queue, snapshot.title);
+      }
+      recoveringSession = false;
+      persistSession();
+      if(typeof toast === 'function') toast('Examen recuperado. Puedes continuar.');
+      return true;
+    }catch(err){
+      if(typeof toast === 'function') toast('No pude recuperar el examen guardado. Puedes iniciar otro.');
+      return false;
+    }finally{
+      recoverySnapshot = null;
+      recoveringSession = false;
+    }
   }
 
 
@@ -834,6 +1038,11 @@
 
       target?.click();
 
+    }
+
+    if(!snapshot.submitted && snapshot.selectedItemId != null &&
+      window.NOA_DRAG_RENDERER.getState()?.selectedItemId !== snapshot.selectedItemId){
+      byDataset('[data-noa-drag-item]', 'noaDragItem', snapshot.selectedItemId)?.click();
     }
 
 
@@ -1966,6 +2175,14 @@
       ...args
     ){
 
+      let recovered = null;
+      if(examQueue.length && examIndex >= 0 && examIndex < examQueue.length &&
+        checkpointAnswers !== examAnswers){
+        checkpointAnswers = examAnswers;
+        sessionDatabase = db;
+        sessionTitle = document.getElementById('pageTitle')?.textContent || 'Simulacro';
+      }
+
       if(mixedState().mixedMode && observedAnswers !== examAnswers){
         observedAnswers = examAnswers;
         drafts.clear();
@@ -1973,6 +2190,23 @@
         restoring = false;
         shellObserver?.disconnect();
         shellObserver = null;
+      }
+
+      if(recoverySnapshot){
+        recovered = recoverySnapshot;
+        recoverySnapshot = null;
+        examIndex = recovered.index;
+        examScore = recovered.score;
+        // v22 ya observó este array: rellenarlo conserva la frontera de sesión.
+        examAnswers.push(...clone(recovered.answers));
+        drafts.clear();
+        for(const [key, draft] of recovered.drafts) drafts.set(String(key), clone(draft));
+        sessionTitle = recovered.title || sessionTitle;
+      }
+
+      if(examQueue.length && examIndex >= examQueue.length){
+        // El núcleo persiste el intento al finalizar; no guardar una sesión terminada.
+        delete db.activeExam;
       }
 
       // La generación sigue siendo monotónica entre sesiones.
@@ -1996,6 +2230,27 @@
             this,
             args
           );
+
+      if(recovered){
+        if(recovered.mixed){
+          window.NOA_EXAM_SHELL.restore(recovered.clock);
+          if(recovered.revision && !window.NOA_ANSWER_REVISION.restore(recovered.revision)){
+            throw new Error('No pude recuperar la revisión');
+          }
+        }
+        const answer = answerFor(currentQuestion());
+        if(answer && !recovered.revision &&
+          (currentQuestion().interactionType || 'single_select') === 'single_select'){
+          renderAnsweredSingle(currentQuestion(), answer);
+          if(!recovered.mixed){
+            const button = document.createElement('button');
+            button.className = 'btn primary';
+            button.textContent = 'Continuar';
+            button.onclick = () => nextExam();
+            document.getElementById('examBox').appendChild(button);
+          }
+        }
+      }
 
 
       setTimeout(
@@ -2035,6 +2290,13 @@
 
 
           if(!q){
+            return;
+          }
+
+          const revision = window.NOA_ANSWER_REVISION?.active?.();
+          if(revision && revision.index === examIndex &&
+            String(revision.questionId) === String(q.id)){
+            deferCheckpoint();
             return;
           }
 
@@ -2082,9 +2344,13 @@
 
           }
 
+          deferCheckpoint();
+
         },
         60
       );
+
+      persistSession();
 
 
       return result;
@@ -2298,6 +2564,33 @@
   // =====================================
   // API
   // =====================================
+
+  document.addEventListener('click', event => {
+    if(event.target?.closest?.(
+      '#examBox, #noaExamShell, #noaExamMap, #noaDragRendererRoot, #noaInlineRendererRoot, #noaOrderRendererRoot'
+    )) deferCheckpoint();
+  }, true);
+
+  document.addEventListener('change', event => {
+    if(event.target?.closest?.('#noaInlineRendererRoot')) deferCheckpoint();
+  }, true);
+
+  document.addEventListener('keydown', event => {
+    if((event.key === 'Enter' || event.key === ' ') &&
+      event.target?.closest?.('.noa-map-cell')) deferCheckpoint();
+  }, true);
+
+  window.addEventListener('pagehide', persistSession);
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden') persistSession();
+  });
+  window.addEventListener('load', recoverSession);
+
+  window.NOA_EXAM_RECOVERY = {
+    save:persistSession,
+    recover:recoverSession,
+    state:() => ({saved:!!db.activeExam, recovering:recoveringSession})
+  };
 
   window.NOA_EXAM_NAVIGATION = {
 
