@@ -2105,10 +2105,12 @@ function renderExamStats(){
             cal.stats[level];
 
           const pct = Math.round(
-            s.correct /
+            s.credit /
             s.total *
             100
           );
+
+          const credit = Number(s.credit.toFixed(2));
 
 
           return `
@@ -2116,8 +2118,9 @@ function renderExamStats(){
             <div class="small">
 
               Nivel ${level}:
-              ${s.correct}/${s.total}
+              ${credit}/${s.total} créditos
               · ${pct}%
+              <br>${s.correct}/${s.total} aciertos completos
 
             </div>
 
@@ -2225,11 +2228,11 @@ function getNOACalibration(){
 
   const stats = {
 
-    1:{correct:0,total:0},
-    2:{correct:0,total:0},
-    3:{correct:0,total:0},
-    4:{correct:0,total:0},
-    5:{correct:0,total:0}
+    1:{correct:0,credit:0,total:0},
+    2:{correct:0,credit:0,total:0},
+    3:{correct:0,credit:0,total:0},
+    4:{correct:0,credit:0,total:0},
+    5:{correct:0,credit:0,total:0}
 
   };
 
@@ -2240,6 +2243,12 @@ function getNOACalibration(){
       Number(a.blueprint.difficulty);
 
     stats[level].total++;
+
+    const credit = typeof a.scoreFraction === 'number' && Number.isFinite(a.scoreFraction)
+      ? Math.max(0, Math.min(1, a.scoreFraction))
+      : a.ok ? 1 : 0;
+
+    stats[level].credit += credit;
 
     if(a.ok){
       stats[level].correct++;
@@ -2261,7 +2270,7 @@ function getNOACalibration(){
         level,
 
         accuracy:
-          s.correct / s.total,
+          s.credit / s.total,
 
         total:
           s.total
