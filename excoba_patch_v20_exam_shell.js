@@ -27,6 +27,15 @@
 
   let mapOpen = false;
 
+  let observedAnswers = null;
+
+  function deferForSession(callback, delay){
+    const answers = examAnswers;
+    setTimeout(() => {
+      if(answers === examAnswers) callback();
+    }, delay);
+  }
+
 
   // =====================================
   // DEPENDENCIAS
@@ -1319,6 +1328,13 @@
       ...args
     ){
 
+      const newSession =
+        state().mixedMode && observedAnswers !== examAnswers;
+      if(newSession){
+        observedAnswers = examAnswers;
+        deactivate();
+      }
+
       const result =
         previousRenderExam
           .apply(
@@ -1327,10 +1343,11 @@
           );
 
 
-      setTimeout(
-        sync,
-        0
-      );
+      if(newSession){
+        sync();
+      }else{
+        deferForSession(sync, 0);
+      }
 
 
       return result;
@@ -1359,7 +1376,7 @@
           )
       ){
 
-        setTimeout(
+        deferForSession(
           sync,
           30
         );
