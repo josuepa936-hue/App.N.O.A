@@ -1998,6 +1998,125 @@
 
 
   // =====================================
+  // CAPTURAR Y RECUPERAR EL EDITOR ACTIVO
+  // =====================================
+
+  function captureRevision(){
+
+    const question = currentQuestion();
+    const type = question?.interactionType || 'single_select';
+
+    if(
+      !revision ||
+      !question ||
+      revision.index !== examIndex ||
+      String(revision.questionId) !== String(question.id) ||
+      revision.type !== type ||
+      !answerFor(question)
+    ){
+      return null;
+    }
+
+    let editor = {};
+
+    if(type !== 'single_select'){
+      const renderer = {
+        drag_classify:window.NOA_DRAG_RENDERER,
+        inline_select:window.NOA_INLINE_RENDERER,
+        drag_order:window.NOA_DRAG_ORDER_RENDERER
+      }[type];
+      const state = renderer?.getState?.();
+
+      if(!state || String(state.question?.id) !== String(question.id)){
+        return null;
+      }
+
+      if(type === 'drag_classify'){
+        editor = {
+          assignments:clone(state.assignments || {}),
+          selectedItemId:state.selectedItemId ?? null
+        };
+      }else if(type === 'inline_select'){
+        editor = {selections:clone(state.selections || {})};
+      }else{
+        editor = {order:clone(state.order || [])};
+      }
+    }
+
+    return {
+      index:revision.index,
+      questionId:revision.questionId,
+      type,
+      editor
+    };
+
+  }
+
+
+  function restoreRevision(snapshot){
+
+    const question = currentQuestion();
+    const answer = answerFor(question);
+    const type = question?.interactionType || 'single_select';
+
+    if(
+      !snapshot ||
+      revision ||
+      !mixedState().mixedMode ||
+      !question ||
+      !answer ||
+      snapshot.index !== examIndex ||
+      String(snapshot.questionId) !== String(question.id) ||
+      snapshot.type !== type ||
+      !['single_select','drag_classify','inline_select','drag_order'].includes(type)
+    ){
+      return false;
+    }
+
+    const editor = snapshot.editor || {};
+    revision = {
+      index:examIndex,
+      questionId:question.id,
+      type
+    };
+
+    if(type === 'drag_classify'){
+      openDragEditor(question, {
+        ...answer,
+        assignments:clone(editor.assignments || {})
+      });
+
+      const selectedItemId = editor.selectedItemId;
+      if(
+        selectedItemId !== null &&
+        selectedItemId !== undefined &&
+        question.elements.some(item => String(item.id) === String(selectedItemId))
+      ){
+        const root = document.getElementById('noaDragRendererRoot');
+        [...(root?.querySelectorAll('[data-noa-drag-item]') || [])]
+          .find(item => String(item.dataset.noaDragItem) === String(selectedItemId))
+          ?.click();
+      }
+    }else if(type === 'inline_select'){
+      openInlineEditor(question, {
+        ...answer,
+        selections:clone(editor.selections || {})
+      });
+    }else if(type === 'drag_order'){
+      openOrderEditor(question, {
+        ...answer,
+        order:clone(editor.order || [])
+      });
+    }else{
+      renderSingleEditor(question, answer);
+    }
+
+    return true;
+
+  }
+
+
+  // =====================================
   // API
   // =====================================
 
@@ -2011,6 +2130,12 @@
 
     cancel:
       cancelRevision,
+
+    capture:
+      captureRevision,
+
+    restore:
+      restoreRevision,
 
     active:
       () =>

@@ -1,5 +1,5 @@
 const CACHE =
-  'noa-mobile-v6-60';
+  'noa-mobile-v6-61';
 
 
 const ASSETS = [
