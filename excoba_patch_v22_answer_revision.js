@@ -1703,7 +1703,7 @@
       ...args
     ){
 
-      if(mixedState().mixedMode && observedAnswers !== examAnswers){
+      if(observedAnswers !== examAnswers){
         observedAnswers = examAnswers;
         revision = null;
         closeRenderers();

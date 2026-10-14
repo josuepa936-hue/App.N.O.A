@@ -1,5 +1,7 @@
-const CACHE =
-  'noa-mobile-v6-61';
+const CACHE_SCOPE = self.registration.scope;
+const CACHE_PREFIX =
+  'noa-mobile:' + encodeURIComponent(CACHE_SCOPE) + ':';
+const CACHE = CACHE_PREFIX + 'v6-62';
 
 
 const ASSETS = [
@@ -60,6 +62,40 @@ const ASSETS = [
 
 ];
 
+const ASSET_URLS = new Set(
+  ASSETS.map(asset => new URL(asset, CACHE_SCOPE).href)
+);
+
+async function removeOldCaches(){
+  const keys = await caches.keys();
+
+  await Promise.all(keys.map(async key => {
+    if(key === CACHE){
+      return;
+    }
+
+    if(key.startsWith(CACHE_PREFIX)){
+      await caches.delete(key);
+      return;
+    }
+
+    // Older releases shared a cache name across projects. Remove it only
+    // when every entry belongs to this installation's known app shell.
+    if(/^noa-mobile-v\d+-\d+$/.test(key)){
+      const cache = await caches.open(key);
+      const requests = await cache.keys();
+      const indexURL = new URL('./index.html', CACHE_SCOPE).href;
+
+      if(
+        requests.some(request => request.url === indexURL) &&
+        requests.every(request => ASSET_URLS.has(request.url))
+      ){
+        await caches.delete(key);
+      }
+    }
+  }));
+}
+
 
 // =====================================
 // INSTALACIÓN
@@ -98,25 +134,7 @@ self.addEventListener(
 
     event.waitUntil(
 
-      caches
-        .keys()
-        .then(keys =>
-
-          Promise.all(
-
-            keys
-              .filter(
-                key =>
-                  key !== CACHE
-              )
-              .map(
-                key =>
-                  caches.delete(key)
-              )
-
-          )
-
-        )
+      removeOldCaches()
         .then(() =>
           self.clients.claim()
         )
@@ -152,11 +170,11 @@ self.addEventListener(
       new URL(request.url);
 
 
-    // NO interceptar recursos
-    // de otros dominios.
+    // Solo recursos del proyecto que registró este service worker.
     if(
       url.origin !==
-      self.location.origin
+      self.location.origin ||
+      !url.href.startsWith(CACHE_SCOPE)
     ){
       return;
     }
@@ -176,8 +194,8 @@ self.addEventListener(
         fetch(request)
 
           .catch(() =>
-            caches.match(
-              './index.html'
+            caches.open(CACHE).then(cache =>
+              cache.match(new URL('./index.html', CACHE_SCOPE).href)
             )
           )
 
@@ -195,7 +213,8 @@ self.addEventListener(
     event.respondWith(
 
       caches
-        .match(request)
+        .open(CACHE)
+        .then(cache => cache.match(request))
 
         .then(cached => {
 

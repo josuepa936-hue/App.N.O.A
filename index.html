@@ -5,6 +5,7 @@
 <meta name="google-site-verification" content="VAo3fwOsg9vNQZatBLpEXirFe7NPkOjUmcUvmglFueA" />
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NOA Mobile — IA de Estudio</title>
+<link rel="icon" type="image/png" href="./noa-192.png">
 <style>
 :root{
   --bg:#0b0e14;--panel:#111723;--panel2:#171e2b;--line:#253044;
@@ -541,7 +542,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
         <div class="field"><label>Número de preguntas</label><select id="examCount"><option>5</option><option selected>10</option><option>15</option><option>20</option><option>45</option><option>180</option></select></div>
         <div class="field" style="margin-top:10px"><label>Materia</label><select id="examSubject"></select></div>
         <div class="row" style="margin-top:14px"><button class="btn primary" onclick="startExam()">Generar simulacro</button><button class="btn" onclick="openQuestionModal()">+ Añadir pregunta</button></div>
-        <p class="small">NOA prioriza preguntas de temas con menor dominio.</p>
+        <p class="small">NOA prioriza preguntas de temas con menor dominio. Puedes usar preguntas manuales y generadas.</p>
       </div>
       <div class="card"><h3>Resultados</h3><div id="examStats" class="muted">Aún no hay simulacros.</div></div>
     </div>
@@ -1233,60 +1234,37 @@ function startExam(){
     ) || 10;
 
 
+  // Las preguntas manuales y las creadas desde apuntes también forman
+  // parte del banco. No inventar un blueprint para incluirlas: Calibrator
+  // solo debe medir los reactivos que tengan una dificultad registrada.
   let pool = db.questions.filter(q =>
-
-    !sid ||
-
-    topicBy(q.topicId)?.subjectId === sid
-
+    q &&
+    (!sid || topicBy(q.topicId)?.subjectId === sid) &&
+    (!q.interactionType || q.interactionType === 'single_select') &&
+    typeof q.text === 'string' && q.text.trim() &&
+    Array.isArray(q.options) &&
+    q.options.length >= 2 && q.options.length <= 4 &&
+    q.options.every(option => typeof option === 'string' && option.trim()) &&
+    Number.isInteger(q.correct) &&
+    q.correct >= 0 && q.correct < q.options.length
   );
 
 
   if(!pool.length){
 
     return toast(
-      'No hay preguntas para esa selección'
+      'No hay preguntas válidas para esa selección'
     );
 
   }
 
 
-  // =====================================
-  // SOLO REACTIVOS CON BLUEPRINT
-  // =====================================
-
-  const adaptivePool = pool.filter(q => {
-
-    const difficulty =
-      Number(q.blueprint?.difficulty);
-
-    return (
-      Number.isFinite(difficulty) &&
-      difficulty >= 1 &&
-      difficulty <= 5
-    );
-
-  });
-
-
-  // =====================================
-  // NO MEZCLAR DATOS ANTIGUOS
-  // =====================================
-
-  if(adaptivePool.length < count){
-
-    const missing =
-      count - adaptivePool.length;
-
+  if(pool.length < count){
     return toast(
-      `Solo hay ${adaptivePool.length} reactivos adaptativos. ` +
-      `Genera ${missing} más desde el Temario Maestro.`
+      `Solo hay ${pool.length} preguntas disponibles. ` +
+      'Añade más preguntas o selecciona un examen más corto.'
     );
-
   }
-
-
-  pool = adaptivePool;
 
 
   // =====================================
@@ -1322,6 +1300,8 @@ function startExam(){
 
   shuffle(candidates);
 
+
+  window.NOA_MIXED_EXAM?.stop?.();
 
   examQueue =
     candidates.slice(0,count);
@@ -2831,6 +2811,7 @@ function selectQuestionsForSubject(sid,count){
 }
 function beginExamQueue(queue,label='Simulacro'){
   if(!queue.length){toast('No hay preguntas suficientes');return}
+  window.NOA_MIXED_EXAM?.stop?.();
   examQueue=queue;examIndex=0;examScore=0;examAnswers=[];page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);
 }
 function startExamForTarget(target,count=10){
@@ -3283,6 +3264,5 @@ renderTimer();renderAll();addMsg('noa','Hola. Soy NOA. Ahora también puedes hab
 <script src="./excoba_patch_v21_exam_navigation.js"></script>
 <script src="./excoba_patch_v22_answer_revision.js"></script>
 <script src="./excoba_patch_v23_results_engine.js"></script>
-})();
 </body>
 </html>
