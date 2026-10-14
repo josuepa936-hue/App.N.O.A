@@ -2155,6 +2155,10 @@
             examIndex + 1
           );
 
+        }else{
+
+          finishExam();
+
         }
 
       };
@@ -2253,8 +2257,7 @@
       }
 
 
-      setTimeout(
-        () => {
+      const synchronizeRenderedQuestion = () => {
 
           if(
             generation !== renderGeneration ||
@@ -2346,9 +2349,12 @@
 
           deferCheckpoint();
 
-        },
-        60
-      );
+      };
+
+      // Los tres renderers abren de forma síncrona. Restaurar en el mismo
+      // turno evita mostrar controles vacíos y sobrescribir la primera
+      // interacción del usuario con un borrador diferido.
+      synchronizeRenderedQuestion();
 
       persistSession();
 

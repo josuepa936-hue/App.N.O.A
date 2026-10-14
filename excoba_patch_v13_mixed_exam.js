@@ -314,6 +314,16 @@
   // INICIAR EXAMEN MIXTO
   // =====================================
 
+  // Salir sin finalizar: el siguiente flujo reemplaza la cola y las respuestas.
+  function stop(){
+    mixedMode = false;
+    recorded.clear();
+    document.body.classList.remove('noa-mixed-exam');
+    window.NOA_DRAG_RENDERER?.close?.();
+    window.NOA_INLINE_RENDERER?.close?.();
+    window.NOA_DRAG_ORDER_RENDERER?.close?.();
+  }
+
   function start(
     questions,
     title =
@@ -1048,6 +1058,8 @@
       VERSION,
 
     start,
+
+    stop,
 
     generateAndStart,
 

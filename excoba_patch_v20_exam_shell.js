@@ -1329,7 +1329,7 @@
     ){
 
       const newSession =
-        state().mixedMode && observedAnswers !== examAnswers;
+        observedAnswers !== examAnswers;
       if(newSession){
         observedAnswers = examAnswers;
         deactivate();
