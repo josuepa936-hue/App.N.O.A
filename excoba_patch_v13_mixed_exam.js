@@ -284,6 +284,22 @@
   // CONVERTIR BATCH EN COLA
   // =====================================
 
+  // Las respuestas y el historial deben conservar la procedencia del reactivo.
+  // Omitir valores ausentes evita añadir metadatos ficticios a preguntas manuales.
+  function answerMetadata(question){
+    const slot = question.blueprintSlot;
+    return Object.fromEntries(Object.entries({
+      slotId:question.slotId ?? slot?.slotId,
+      blueprintSlot:slot,
+      sourceTrace:question.sourceTrace ?? slot?.source,
+      sourceType:question.sourceType ?? slot?.sourceType,
+      requestedSourceType:question.requestedSourceType ?? slot?.requestedSourceType,
+      difficulty:question.difficulty ?? question.blueprint?.difficulty ?? slot?.difficulty?.level,
+      interactionType:question.interactionType,
+      accepted:typeof question.accepted === 'boolean' ? question.accepted : undefined
+    }).filter(([,value]) => value !== undefined));
+  }
+
   function questionsFromBatch(
     batch
   ){
@@ -764,7 +780,9 @@
       explanation:
         q.explain ||
         q.explanation ||
-        ''
+        '',
+
+      ...answerMetadata(q)
 
     });
 
@@ -1064,6 +1082,8 @@
     generateAndStart,
 
     questionsFromBatch,
+
+    answerMetadata,
 
     state
 

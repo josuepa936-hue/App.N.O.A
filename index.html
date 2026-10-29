@@ -57,6 +57,10 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 .kpi{font-size:13px;color:var(--muted)}.kpi b{color:var(--text)}
 @media(max-width:900px){.app{grid-template-columns:1fr}.sidebar{height:auto;position:relative;border-right:0;border-bottom:1px solid var(--line)}.nav{grid-template-columns:repeat(3,1fr)}.sidefoot{display:none}.grid4,.grid2{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.main{padding:16px}.grid4,.grid2{grid-template-columns:1fr}.nav{grid-template-columns:1fr 1fr}.topbar{align-items:flex-start;flex-direction:column}}
+@media(max-width:700px){
+  #exam > .grid{grid-template-columns:minmax(0,1fr)}
+  #examSubject{width:100%;min-width:0;max-width:100%}
+}
 
 .voicebar{position:fixed;right:24px;top:20px;display:flex;gap:8px;align-items:center;z-index:15}
 .mic{width:54px;height:54px;border-radius:50%;border:1px solid var(--line);background:var(--accent);font-size:23px;box-shadow:var(--shadow)}
@@ -1899,7 +1903,9 @@ function answerExam(i){
 
     judge: q.judge || null,
 
-    explanation: q.explain || ''
+    explanation: q.explain || '',
+
+    ...(window.NOA_MIXED_EXAM?.answerMetadata?.(q) || {})
 
   });
 

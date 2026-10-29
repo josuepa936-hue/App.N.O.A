@@ -691,7 +691,9 @@ return previousRenderExam();
       explanation:
         q.explanation ||
         q.explain ||
-        ''
+        '',
+
+      ...(window.NOA_MIXED_EXAM?.answerMetadata?.(q) || {})
 
     });
 
