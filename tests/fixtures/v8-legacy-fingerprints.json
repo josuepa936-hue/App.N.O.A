@@ -1,0 +1,46 @@
+{
+  "baseCommit": "88e58d1ed1d8bf9eefcf5c3ba6748b2baead44ee",
+  "description": "SHA-256 de nueve Blueprint v8 originales, cinco slots por materia; solo se omite createdAt.",
+  "cases": [
+    {
+      "profile": "official",
+      "sample": 0,
+      "sha256": "43070ef3732b6bc82060176d93b122ee324e6d9da9434e6fe6b4f7766214ee2f"
+    },
+    {
+      "profile": "official",
+      "sample": 5,
+      "sha256": "82b9c383c4a6f689e2bef7454d7e7c2e75d3b43affe11a3abd2bd39068742fec"
+    },
+    {
+      "profile": "extended",
+      "sample": 0,
+      "sha256": "f32e812040e0b99c77a1bd7d275f94e0f6a62c1c7dfa62eb71026997b304e4cc"
+    },
+    {
+      "profile": "extended",
+      "sample": 5,
+      "sha256": "ce9a106963fed2af01f5652ea22848bd7b33fab17320a10341196d5a643c7d06"
+    },
+    {
+      "profile": "course",
+      "sample": 0,
+      "sha256": "f255964e9775555e9fc3f1526c736dc2591802faf13dbb91171dd7d23844da51"
+    },
+    {
+      "profile": "course",
+      "sample": 5,
+      "sha256": "bcbaec5f8f07caf55ce948c5231efa8f78ce154b5226d0f192abb91b0e56a5f9"
+    },
+    {
+      "profile": "extreme",
+      "sample": 0,
+      "sha256": "0b433e865955539ab6fce9f9461a576a44dc3762889feb484765f0d6e1333074"
+    },
+    {
+      "profile": "extreme",
+      "sample": 5,
+      "sha256": "b1660ee7fb9539b174011b1791c6b144f7eeec8d653b8eccca1c2f1850077654"
+    }
+  ]
+}

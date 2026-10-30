@@ -1,7 +1,7 @@
 const { questions } = require('./fixtures.cjs');
 
-// Decisiones sintéticas compatibles fijadas ANTES de generar. Los motores
-// académicos y replaceSlot siguen siendo reales; Generator/Judge se sustituyen.
+// El plan y replaceSlot son reales. Solo Generator/Judge se sustituyen por
+// respuestas sintéticas; ningún formato se reescribe después de bloquearlo.
 async function installMultibatchFixture(page, configuration = {}) {
   await page.evaluate(({ templates, configuration }) => {
     const clone = value => structuredClone(value);
@@ -14,23 +14,28 @@ async function installMultibatchFixture(page, configuration = {}) {
         analysis: { syllabus_links: [{ code: subject.prefixes[0] + '1' }], concepts: [] }
       })) : [];
     }
-    const formats = NOA_EXCOBA_REALISM.formatsForSubject;
-    const defaultPlan = NOA_EXAM_PLAN_V25.build();
-    NOA_EXCOBA_REALISM.formatsForSubject = () => ['single_select'];
     const plan = NOA_EXAM_PLAN_V25.build();
-    NOA_EXCOBA_REALISM.formatsForSubject = formats;
     const orderedFormats = ['single_select', 'drag_classify', 'inline_select', 'drag_order'];
-    for (const entry of plan.slots) {
-      const allowed = orderedFormats.filter(type => formats(entry.subject).includes(type));
-      const type = configuration.singleOnly ? 'single_select' : allowed[entry.blueprintSlot.index % allowed.length];
-      entry.blueprintSlot.interactionType = type;
-      entry.blueprintSlot.responseFamily = NOA_EXCOBA_REALISM.itemTypes[type].family;
-      entry.blueprintSlot.partialCreditEligible = NOA_EXCOBA_REALISM.itemTypes[type].partialCredit;
+    const pairs = Object.fromEntries(orderedFormats.map(type => {
+      const origin = plan.slots.findIndex(entry => entry.blueprintSlot.interactionType === type);
+      const target = plan.slots.findIndex(entry => entry.blueprintSlot.interactionType === type &&
+        entry.subject !== plan.slots[origin]?.subject);
+      return [type, { origin, target }];
+    }));
+    if (configuration.format) {
+      configuration.origin ??= pairs[configuration.format].origin;
+      configuration.target ??= pairs[configuration.format].target;
     }
-    plan.interactionTypes = [...new Set(plan.slots.map(entry => entry.blueprintSlot.interactionType))];
+    // La estructura y los flags siguen siendo coherentes: el orquestador debe
+    // rechazar el formato incompatible por su propia validación estricta.
+    const invalidPlan = clone(plan);
+    const invalidSlot = invalidPlan.slots[0].blueprintSlot;
+    invalidSlot.interactionType = 'numeric_input';
+    invalidPlan.subjects.find(subject => subject.id === invalidSlot.subject)
+      .blueprint.slots[invalidSlot.index] = invalidSlot;
     const stats = { calls: [], replaceCalls: [], events: [], active: 0, maxActive: 0,
       forbidden: { ai: 0, fetch: 0, batch: 0, blueprint: 0, planner: 0, exam: 0 } };
-    const state = window.__multiFixture = { plan, defaultPlan, config: configuration, stats, progress: [], result: null };
+    const state = window.__multiFixture = { plan, invalidPlan, pairs, config: configuration, stats, progress: [], result: null };
     const forbidden = key => () => { stats.forbidden[key]++; throw new Error(`Llamada prohibida: ${key}`); };
     window.callAI = forbidden('ai');
     window.fetch = forbidden('fetch');
@@ -138,7 +143,10 @@ async function installMultibatchFixture(page, configuration = {}) {
           if (config.field === 'sourceType') question.sourceType = 'course';
           if (config.field === 'blueprintSlot') question.blueprintSlot.index++;
           if (config.field === 'judge') delete question.judge;
-          if (config.field === 'render') delete question.options;
+          if (config.field === 'render') {
+            const field = { single_select: 'options', drag_classify: 'elements', inline_select: 'blanks', drag_order: 'items' }[slot.interactionType];
+            delete question[field];
+          }
         }
         if (config.omitTrace && ['inline_select', 'drag_order'].includes(slot.interactionType)) {
           delete question.sourceTrace;

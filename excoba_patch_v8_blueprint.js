@@ -959,7 +959,8 @@
   function chooseInteractionType(
     subject,
     slotIndex,
-    difficulty
+    difficulty,
+    allowedInteractionTypes = null
   ){
 
     const realism =
@@ -967,6 +968,7 @@
 
 
     const allowed =
+      allowedInteractionTypes ||
       realism
         ?.formatsForSubject?.(
           subject
@@ -1020,7 +1022,9 @@
 
     fixedInteractionType = null,
 
-    fixedCalibratorDifficulty = null
+    fixedCalibratorDifficulty = null,
+
+    allowedInteractionTypes = null
 
   }){
 
@@ -1056,7 +1060,8 @@
       chooseInteractionType(
         subject,
         index,
-        finalDifficulty
+        finalDifficulty,
+        allowedInteractionTypes
       );
 
 
@@ -1075,6 +1080,17 @@
           interactionType
 
         });
+
+
+    if(
+      allowedInteractionTypes &&
+      realism?.interactionType !== interactionType
+    ){
+      throw new Error(
+        'Realism no conservó el formato compatible elegido: ' +
+        interactionType
+      );
+    }
 
 
     const resolved =
@@ -1200,7 +1216,9 @@
 
     subject,
 
-    count = 10
+    count = 10,
+
+    supportedInteractionTypes
 
   } = {}){
 
@@ -1248,6 +1266,37 @@
     }
 
 
+    // La restricción se resuelve antes de construir y bloquear los slots.
+    // Sin este parámetro se conserva la selección y estructura anteriores.
+    let allowedInteractionTypes = null;
+    let interactionPolicy = null;
+    if(supportedInteractionTypes !== undefined){
+      if(
+        !Array.isArray(supportedInteractionTypes) ||
+        !supportedInteractionTypes.length ||
+        supportedInteractionTypes.some(type =>
+          typeof type !== 'string' || !type.trim()
+        )
+      ){
+        throw new Error('supportedInteractionTypes debe ser una lista no vacía de formatos.');
+      }
+      const supported = [...new Set(supportedInteractionTypes)];
+      const appropriate = realismEngine().formatsForSubject?.(target);
+      allowedInteractionTypes = Array.isArray(appropriate)
+        ? [...new Set(appropriate)].filter(type => supported.includes(type))
+        : [];
+      if(!allowedInteractionTypes.length){
+        throw new Error('No hay formatos compatibles para la materia: ' + target);
+      }
+      interactionPolicy = {
+        restricted:true,
+        supportedInteractionTypes:supported,
+        allowedInteractionTypes:[...allowedInteractionTypes],
+        note:'Selección restringida por compatibilidad; no representa todas las interacciones ni las frecuencias oficiales del EXCOBA.'
+      };
+    }
+
+
     const profile =
       currentProfile();
 
@@ -1289,7 +1338,9 @@
             profile,
 
             cycle:
-              calibration.cycle
+              calibration.cycle,
+
+            allowedInteractionTypes
 
           })
 
@@ -1337,6 +1388,8 @@
 
       requestedSourceCounts:
         counts,
+
+      ...(interactionPolicy ? {interactionPolicy} : {}),
 
       slots
 

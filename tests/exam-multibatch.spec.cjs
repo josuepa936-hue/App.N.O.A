@@ -23,6 +23,9 @@ test('v25 prepara exactamente 45 preguntas de nueve materias conservando identid
   await installMultibatchFixture(page, { omitTrace: true });
   const { result, plan, stats, progress } = await runMultibatch(page);
   expect(result.requested).toBe(45);
+  expect(plan.valid).toBe(true);
+  expect(plan.unsupportedSlots).toEqual([]);
+  expect(plan.interactionPolicy.restricted).toBe(true);
   expect(result.accepted).toBe(45);
   expect(result.complete).toBe(true);
   expect(result.questions).toHaveLength(45);
@@ -105,7 +108,7 @@ test('v25 rechaza planes inválidos o alterados antes de llamar Generator', asyn
   await installMultibatchFixture(page);
   const outcomes = await page.evaluate(async () => {
     const original = __multiFixture.plan;
-    const cases = [__multiFixture.defaultPlan, null];
+    const cases = [__multiFixture.invalidPlan, null];
     for (const field of ['total', 'slots', 'identity', 'subject', 'group', 'blueprint']) {
       const plan = structuredClone(original);
       if (field === 'total') plan.total = 44;
@@ -127,6 +130,7 @@ test('v25 rechaza planes inválidos o alterados antes de llamar Generator', asyn
     return { outcomes, calls: __multiFixture.stats.calls.length };
   });
   expect(outcomes.outcomes).toHaveLength(8);
+  expect(outcomes.outcomes[0]).toMatch(/formato no soportado/i);
   expect(outcomes.outcomes.every(message => message !== 'accepted' && message.length > 0)).toBe(true);
   expect(outcomes.calls).toBe(0);
 });
@@ -150,10 +154,14 @@ for (const mode of ['reject', 'error']) {
   });
 }
 
-for (const [format, origin, target] of [['single_select', 0, 10], ['drag_classify', 1, 11], ['inline_select', 2, 12], ['drag_order', 3, 13]]) {
+for (const format of ['single_select', 'drag_classify', 'inline_select', 'drag_order']) {
   test(`v25 detecta duplicado global ${format} entre materias y repone`, async ({ page }) => {
-    await installMultibatchFixture(page, { mode: 'duplicate', origin, target, normalizeDuplicate: true, renameBlanks: format === 'inline_select' });
+    await installMultibatchFixture(page, { mode: 'duplicate', format, normalizeDuplicate: true, renameBlanks: format === 'inline_select' });
+    const { origin, target } = await page.evaluate(format => __multiFixture.pairs[format], format);
     const { result, plan } = await runMultibatch(page);
+    expect(origin).toBeGreaterThanOrEqual(0);
+    expect(target).toBeGreaterThanOrEqual(0);
+    expect(plan.slots[origin].subject).not.toBe(plan.slots[target].subject);
     expect(result.complete).toBe(true);
     expect(result.accepted).toBe(45);
     expect(result.duplicates).toHaveLength(1);
@@ -177,14 +185,15 @@ for (const scenario of ['instruction_only', 'different_operator']) {
     await installMultibatchFixture(page);
     const result = await page.evaluate(async scenario => {
       const generate = NOA_BLUEPRINT_GENERATOR.generateSlot;
+      const { origin, target } = __multiFixture.pairs.single_select;
       NOA_BLUEPRINT_GENERATOR.generateSlot = async (slot, options) => {
         const generated = await generate(slot, options);
         const position = __multiFixture.plan.slots.findIndex(entry => entry.subject === slot.subject && entry.slotId === slot.slotId);
-        if ([0, 10].includes(position)) {
-          generated.question.text = scenario === 'different_operator' && position === 10 ? '2 - 2 = ?' : '2 + 2 = ?';
+        if ([origin, target].includes(position)) {
+          generated.question.text = scenario === 'different_operator' && position === target ? '2 - 2 = ?' : '2 + 2 = ?';
           generated.question.options = ['0', '2', '4', '8'];
-          generated.question.correct = scenario === 'different_operator' && position === 10 ? 0 : 2;
-          generated.question.instruction = scenario === 'instruction_only' && position === 10
+          generated.question.correct = scenario === 'different_operator' && position === target ? 0 : 2;
+          generated.question.instruction = scenario === 'instruction_only' && position === target
             ? 'Elige la opción correcta.' : 'Selecciona una respuesta.';
         }
         return generated;
@@ -209,14 +218,15 @@ test('v25 distingue inline_select con igual contexto y distintas opciones por es
   await installMultibatchFixture(page);
   const result = await page.evaluate(async () => {
     const generate = NOA_BLUEPRINT_GENERATOR.generateSlot;
+    const { origin, target } = __multiFixture.pairs.inline_select;
     NOA_BLUEPRINT_GENERATOR.generateSlot = async (slot, options) => {
       const generated = await generate(slot, options);
       const position = __multiFixture.plan.slots.findIndex(entry => entry.subject === slot.subject && entry.slotId === slot.slotId);
-      if ([2, 12].includes(position)) {
+      if ([origin, target].includes(position)) {
         generated.question.instruction = 'Completa los espacios.';
         generated.question.text = 'Primero [[b1]] y después [[b2]].';
         generated.question.blanks = [
-          { id: 'b1', options: position === 2 ? ['2', '3'] : ['5', '6'], correct: 0 },
+          { id: 'b1', options: position === origin ? ['2', '3'] : ['5', '6'], correct: 0 },
           { id: 'b2', options: ['4', '5'], correct: 0 }
         ];
       }
@@ -233,11 +243,12 @@ test('v25 detecta inline duplicado con instrucción genérica distinta', async (
   await installMultibatchFixture(page);
   const result = await page.evaluate(async () => {
     const generate = NOA_BLUEPRINT_GENERATOR.generateSlot;
+    const { origin, target } = __multiFixture.pairs.inline_select;
     NOA_BLUEPRINT_GENERATOR.generateSlot = async (slot, options) => {
       const generated = await generate(slot, options);
       const position = __multiFixture.plan.slots.findIndex(entry => entry.subject === slot.subject && entry.slotId === slot.slotId);
-      if ([2, 12].includes(position)) {
-        generated.question.instruction = position === 2 ? 'Completa los espacios.' : 'Selecciona las respuestas.';
+      if ([origin, target].includes(position)) {
+        generated.question.instruction = position === origin ? 'Completa los espacios.' : 'Selecciona las respuestas.';
         generated.question.text = 'Primero [[b1]] y después [[b2]].';
         generated.question.blanks = [
           { id: 'b1', options: ['2', '3'], correct: 0 },
@@ -438,7 +449,7 @@ test('v25 no entrega examen listo si la conversión pierde cantidad, identidad o
 
 test.describe('v25 multilote con service worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('v25 queda en caché v67 y el resto de NOA continúa disponible tras recargar offline', async ({ page, context }) => {
+  test('v25 queda en caché v68 y el resto de NOA continúa disponible tras recargar offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cached = await page.evaluate(async () => {
@@ -446,7 +457,7 @@ test.describe('v25 multilote con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, module: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_multibatch.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-67$/);
+    expect(cached.name).toMatch(/:v6-68$/);
     expect(cached.module).toBe(true);
     await context.setOffline(true);
     await page.reload();

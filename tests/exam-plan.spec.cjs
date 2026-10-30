@@ -48,7 +48,7 @@ test.afterEach(async ({ page }, testInfo) => {
 });
 
 test('v25 planifica nueve materias reales, 45 slots y distribución 10/20/15 sin alterar Blueprint', async ({ page }, testInfo) => {
-  const { plan, originals } = await page.evaluate(() => {
+  const { plan, originals, supported, appropriate } = await page.evaluate(() => {
     const original = NOA_SOURCE_BLUEPRINT.build;
     const originals = [];
     NOA_SOURCE_BLUEPRINT.build = options => {
@@ -56,7 +56,10 @@ test('v25 planifica nueve materias reales, 45 slots y distribución 10/20/15 sin
       originals.push({ options, blueprint: structuredClone(blueprint) });
       return blueprint;
     };
-    return { plan: NOA_EXAM_PLAN_V25.build(), originals };
+    const supported = [...NOA_BATCH_ORCHESTRATOR.supportedTypes];
+    const appropriate = Object.fromEntries(NOA_EXCOBA_V4.subjects.map(subject => [subject.value,
+      NOA_EXCOBA_REALISM.formatsForSubject(subject.value).filter(type => supported.includes(type))]));
+    return { plan: NOA_EXAM_PLAN_V25.build(), originals, supported, appropriate };
   });
   expect(plan.version).toBe('25.0');
   expect(plan.requestedTotal).toBe(45);
@@ -69,7 +72,12 @@ test('v25 planifica nueve materias reales, 45 slots y distribución 10/20/15 sin
     subjects.slice(0, 2), subjects.slice(2, 6), subjects.slice(6)
   ]);
   expect(plan.subjects.map(subject => subject.id)).toEqual(subjects);
-  expect(originals.map(item => item.options)).toEqual(subjects.map(subject => ({ subject, count: 5 })));
+  expect(originals.map(item => item.options)).toEqual(subjects.map(subject => ({ subject, count: 5,
+    supportedInteractionTypes: supported })));
+  expect(plan.interactionPolicy).toMatchObject({ restricted: true,
+    supportedInteractionTypes: supported, selection: 'subject_intersection' });
+  expect(plan.interactionPolicy.note).toMatch(/restringida/i);
+  expect(plan.interactionPolicy.note).toMatch(/no.*oficial/i);
   expect(plan.slots).toHaveLength(45);
   expect(new Set(plan.slots.map(slot => slot.id)).size).toBe(45);
   for (let index = 0; index < subjects.length; index++) {
@@ -78,6 +86,8 @@ test('v25 planifica nueve materias reales, 45 slots y distribución 10/20/15 sin
     expect(subject.label).toBeTruthy();
     expect(subject.blueprint).toEqual(originals[index].blueprint);
     expect(subject.blueprint.slots).toHaveLength(5);
+    expect(subject.blueprint.interactionPolicy).toMatchObject({ restricted: true,
+      supportedInteractionTypes: supported, allowedInteractionTypes: appropriate[subject.id] });
     const planned = plan.slots.filter(slot => slot.subject === subject.id);
     expect(planned).toHaveLength(5);
     for (let slotIndex = 0; slotIndex < 5; slotIndex++) {
@@ -87,6 +97,7 @@ test('v25 planifica nueve materias reales, 45 slots y distribución 10/20/15 sin
       expect(slot.id).toBe(`v25:${encodeURIComponent(subject.id)}:${original.slotId}`);
       expect(slot.blueprintSlot).toEqual(original);
       expect(slot.blueprintSlot.difficulty).toEqual(original.difficulty);
+      expect(appropriate[subject.id]).toContain(slot.blueprintSlot.interactionType);
       expect(slot.blueprintSlot.source.kind).toBe('official');
       expect(slot.blueprintSlot.syllabusCodes).not.toHaveLength(0);
     }
@@ -95,14 +106,9 @@ test('v25 planifica nueve materias reales, 45 slots y distribución 10/20/15 sin
   expect(plan.calibration).toEqual(originals[0].blueprint.calibration);
   expect(plan.interactionTypes).toEqual([...new Set(plan.slots.map(slot => slot.blueprintSlot.interactionType))]);
   expect(plan.structureValid).toBe(true);
-  // El catálogo v7 también prevé formatos numéricos que Batch aún no genera.
-  // El plan debe informar la incompatibilidad sin sustituir esos slots.
-  expect(plan.valid).toBe(false);
-  expect(plan.unsupportedSlots).toHaveLength(13);
-  expect(new Set(plan.unsupportedSlots.map(slot => slot.interactionType))).toEqual(
-    new Set(['number_line', 'numeric_input', 'algebraic_input'])
-  );
-  expect(plan.errors.some(error => error.code === 'unsupported_interaction')).toBe(true);
+  expect(plan.valid).toBe(true);
+  expect(plan.unsupportedSlots).toEqual([]);
+  expect(plan.errors).toEqual([]);
   await testInfo.attach('plan-excoba-45-real', { body: JSON.stringify(plan, null, 2), contentType: 'application/json' });
 });
 
@@ -126,6 +132,8 @@ test('v25 reutiliza los cuatro perfiles v6 y conserva la dificultad final de cad
     }, key);
     expect(result.plan.profile).toEqual(result.profile);
     expect(result.plan.profile.key).toBe(key);
+    expect(result.plan.valid).toBe(true);
+    expect(result.plan.unsupportedSlots).toEqual([]);
     for (const subject of result.plan.subjects) {
       expect(subject.blueprint.profile).toEqual(result.profile);
       for (const slot of subject.blueprint.slots) {
@@ -144,6 +152,8 @@ test('v25 refleja el ciclo inicial y el adaptativo sin recalcular ni elevar la d
       return { plan: NOA_EXAM_PLAN_V25.build(), expected: NOA_SOURCE_BLUEPRINT.calibrationState() };
     }, sample);
     expect(result.plan.calibration.adaptive).toBe(sample >= 5);
+    expect(result.plan.valid).toBe(true);
+    expect(result.plan.unsupportedSlots).toEqual([]);
     expect(result.plan.calibration.sample).toBe(sample);
     expect(result.plan.calibration.cycle).toEqual(result.expected.cycle);
     for (const subject of result.plan.subjects) {
@@ -172,23 +182,19 @@ test('v25 informa el fallback a fuente oficial cuando el perfil curso carece de 
   }
 });
 
-test('v25 declara válido un plan completo cuando los formatos públicos previstos son compatibles', async ({ page }) => {
-  const plan = await page.evaluate(() => {
-    NOA_EXCOBA_REALISM.formatsForSubject = () => ['single_select'];
-    return NOA_EXAM_PLAN_V25.build();
-  });
+test('v25 declara válido el plan estándar con los cuatro formatos compatibles', async ({ page }) => {
+  const plan = await page.evaluate(() => NOA_EXAM_PLAN_V25.build());
   expect(plan.total).toBe(45);
   expect(plan.slots).toHaveLength(45);
   expect(plan.structureValid).toBe(true);
   expect(plan.valid).toBe(true);
   expect(plan.errors).toEqual([]);
   expect(plan.unsupportedSlots).toEqual([]);
-  expect(plan.interactionTypes).toEqual(['single_select']);
+  expect(new Set(plan.interactionTypes)).toEqual(new Set(['single_select', 'drag_classify', 'inline_select', 'drag_order']));
 });
 
 test('v25 detecta un formato no soportado y conserva todos los slots y su dificultad', async ({ page }) => {
   const result = await page.evaluate(() => {
-    NOA_EXCOBA_REALISM.formatsForSubject = () => ['single_select'];
     const original = NOA_SOURCE_BLUEPRINT.build;
     let injected;
     NOA_SOURCE_BLUEPRINT.build = options => {
@@ -229,7 +235,6 @@ for (const scenario of ['missing_subject', 'duplicate_subject', 'missing_syllabu
 
 test('v25 rechaza errores, slots inválidos, identidades duplicadas y metadatos incoherentes de Blueprint', async ({ page }) => {
   const results = await page.evaluate(() => {
-    NOA_EXCOBA_REALISM.formatsForSubject = () => ['single_select'];
     const original = NOA_SOURCE_BLUEPRINT.build;
     return ['blueprint_error', 'invalid_blueprint', 'invalid_slot', 'duplicate_slot_id', 'profile_mismatch', 'calibration_mismatch'].map(scenario => {
       let index = 0;
@@ -302,7 +307,7 @@ test('v25 no modifica sesión activa, revisión, borradores, intentos ni almacen
 test.describe('v25 con service worker real', () => {
   test.use({ serviceWorkers: 'allow' });
 
-  test('v25 se almacena en caché v67 aislada y construye el plan tras recargar offline', async ({ page, context }) => {
+  test('v25 se almacena en caché v68 aislada y construye el plan tras recargar offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cached = await page.evaluate(async () => {
@@ -310,7 +315,7 @@ test.describe('v25 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v25: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_plan.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-67$/);
+    expect(cached.name).toMatch(/:v6-68$/);
     expect(cached.v25).toBe(true);
     await context.setOffline(true);
     await page.reload();
@@ -318,6 +323,7 @@ test.describe('v25 con service worker real', () => {
     await guardGeneration(page);
     const plan = await page.evaluate(() => NOA_EXAM_PLAN_V25.build());
     expect(plan.total).toBe(45);
+    expect(plan.valid).toBe(true);
     expect(plan.structureValid).toBe(true);
     expect(plan.slots).toHaveLength(45);
   });

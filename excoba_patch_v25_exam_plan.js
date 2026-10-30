@@ -7,6 +7,7 @@
   ];
   const PER_SUBJECT = 5;
   const TOTAL = 45;
+  const COMPATIBLE_INTERACTIONS = ['single_select', 'drag_classify', 'inline_select', 'drag_order'];
 
   function build(){
     const syllabus = window.NOA_EXCOBA_V4;
@@ -28,10 +29,11 @@
     if(!enginesReady){
       fail('missing_engine', 'Se necesitan el Temario Maestro v4 y el motor Blueprint v8.');
     }
-    if(!Array.isArray(supported) || !supported.length){
+    const supportedInteractionTypes = [...new Set(Array.isArray(supported)
+      ? supported.filter(type => COMPATIBLE_INTERACTIONS.includes(type)) : [])];
+    if(!supportedInteractionTypes.length){
       fail('missing_engine', 'No está disponible el catálogo de formatos admitidos por Batch.');
     }
-    const supportedInteractionTypes = [...new Set(Array.isArray(supported) ? supported : [])];
     let profile = null;
     let calibration = null;
 
@@ -61,7 +63,7 @@
               fail('missing_syllabus', 'Faltan puntos del Temario Maestro para esta materia.', {subject:subject.value});
               continue;
             }
-            const blueprint = blueprintEngine.build({subject:subject.value, count:PER_SUBJECT});
+            const blueprint = blueprintEngine.build({subject:subject.value, count:PER_SUBJECT, supportedInteractionTypes});
             // Se conserva el Blueprint completo, incluido su createdAt informativo.
             // La distribución, las identidades y los slots son deterministas para
             // el mismo Temario, perfil, Calibrator y fuentes disponibles.
@@ -124,6 +126,10 @@
       version:'25.0', requestedTotal:TOTAL, total:slots.length,
       distributionNote:'Adaptación proporcional de los 180 reactivos de EXCOBA Medicina; no representa frecuencias exactas de formatos del examen oficial.',
       groups, subjects, profile, calibration, slots,
+      interactionPolicy:{
+        restricted:true, supportedInteractionTypes:[...supportedInteractionTypes], selection:'subject_intersection',
+        note:'Selección restringida de formatos compatibles con NOA; no representa todas las interacciones ni las frecuencias oficiales del EXCOBA.'
+      },
       interactionTypes:[...new Set(slots.map(slot => slot.blueprintSlot.interactionType))],
       supportedInteractionTypes, unsupportedSlots,
       structureValid:!errors.some(error => error.code !== 'unsupported_interaction'),
