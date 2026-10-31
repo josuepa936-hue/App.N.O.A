@@ -289,6 +289,9 @@
   function answerMetadata(question){
     const slot = question.blueprintSlot;
     return Object.fromEntries(Object.entries({
+      planSlotId:question.planSlotId,
+      subject:question.subject ?? slot?.subject,
+      groupId:question.groupId,
       slotId:question.slotId ?? slot?.slotId,
       blueprintSlot:slot,
       sourceTrace:question.sourceTrace ?? slot?.source,

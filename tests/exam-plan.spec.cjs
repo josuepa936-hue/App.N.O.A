@@ -307,7 +307,7 @@ test('v25 no modifica sesión activa, revisión, borradores, intentos ni almacen
 test.describe('v25 con service worker real', () => {
   test.use({ serviceWorkers: 'allow' });
 
-  test('v25 se almacena en caché v68 aislada y construye el plan tras recargar offline', async ({ page, context }) => {
+  test('v25 se almacena en caché v69 aislada y construye el plan tras recargar offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cached = await page.evaluate(async () => {
@@ -315,7 +315,7 @@ test.describe('v25 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v25: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_plan.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-68$/);
+    expect(cached.name).toMatch(/:v6-69$/);
     expect(cached.v25).toBe(true);
     await context.setOffline(true);
     await page.reload();

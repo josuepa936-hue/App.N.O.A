@@ -62,7 +62,7 @@
       const validSubject = available.some(subject => subject.value === select.value);
       select.disabled = busy || !available.length;
       element('noaGeneratorCount').disabled = busy;
-      element('noaGeneratorGenerate').disabled = busy || !validSubject ||
+      element('noaGeneratorGenerate').disabled = busy || !!window.NOA_EXAM_UI_V25?.state?.()?.busy || !validSubject ||
         typeof window.NOA_BATCH_ORCHESTRATOR?.generate !== 'function' ||
         ![5,10].includes(Number(element('noaGeneratorCount').value));
       card.setAttribute('aria-busy', String(busy));
@@ -121,8 +121,9 @@
   }
 
   async function generate(){
-    if(busy) return;
+    if(busy || window.NOA_EXAM_UI_V25?.state?.()?.busy) return;
     busy = true;
+    window.NOA_EXAM_UI_V25?.refresh?.();
     try{
       if(!refresh()) return;
       const subject = element('noaGeneratorSubject').value;
@@ -168,6 +169,7 @@
     }finally{
       busy = false;
       refresh();
+      window.NOA_EXAM_UI_V25?.refresh?.();
     }
   }
 

@@ -219,14 +219,14 @@ test('v24 navega, puntúa parcialmente, revisa, recupera y guarda resultados v23
 
 test.describe('v24 etapa 2 con service worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('v24 usa caché v68 aislada y el fallo de IA offline conserva el estado', async ({ page, context }) => {
+  test('v24 usa caché v69 aislada y el fallo de IA offline conserva el estado', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready); await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cached = await page.evaluate(async () => {
       const scope = (await navigator.serviceWorker.getRegistration()).scope;
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v24: !!await (await caches.open(name)).match(new URL('excoba_patch_v24_generator_ui.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-68$/); expect(cached.v24).toBe(true);
+    expect(cached.name).toMatch(/:v6-69$/); expect(cached.v24).toBe(true);
     await context.setOffline(true); await page.reload(); await page.waitForFunction(() => !!window.NOA_GENERATOR_UI);
     await page.locator('#nav button[data-page="exam"]').click(); const before = await examState(page); await generate(page).click();
     await expect(phase(page)).toHaveText('Error del motor'); await expect(page.locator('#noaGeneratorDetails')).toContainText(/conexi[oó]n|offline|internet/i);

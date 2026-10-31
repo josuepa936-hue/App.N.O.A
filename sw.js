@@ -1,7 +1,7 @@
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX =
   'noa-mobile:' + encodeURIComponent(CACHE_SCOPE) + ':';
-const CACHE = CACHE_PREFIX + 'v6-68';
+const CACHE = CACHE_PREFIX + 'v6-69';
 
 
 const ASSETS = [
@@ -61,6 +61,8 @@ const ASSETS = [
   './excoba_patch_v25_exam_plan.js',
 
   './excoba_patch_v25_multibatch.js',
+
+  './excoba_patch_v25_exam_ui.js',
 
   './noa-192.png',
 
