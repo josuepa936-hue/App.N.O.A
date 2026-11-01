@@ -1320,6 +1320,66 @@ function startExam(){
   renderExam();
 
 }
+function judgeReviewHTML(answer){
+  const judge = answer.judge;
+  if(!judge || typeof judge !== 'object' || Array.isArray(judge)){
+    return '<div class="small" style="margin-top:8px">Sin evaluación Judge</div>';
+  }
+
+  const validMetric = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 10;
+  const formatMetrics = {
+    single_select:[['distractor_quality','Distractores'],['single_correct','Respuesta única']],
+    drag_classify:[['classification_quality','Clasificación'],['element_quality','Elementos'],['ambiguity_control','Control de ambigüedad']],
+    inline_select:[['blank_quality','Espacios'],['option_quality','Opciones por espacio'],['context_quality','Contexto'],['ambiguity_control','Control de ambigüedad']],
+    drag_order:[['sequence_validity','Validez de la secuencia'],['order_uniqueness','Orden único'],['semantic_distinctness','Distinción semántica'],['item_quality','Pasos'],['ambiguity_control','Control de ambigüedad']]
+  };
+  let type = answer.interactionType || answer.blueprintSlot?.interactionType;
+  if(!formatMetrics[type]){
+    type = 'sequence_validity' in judge ? 'drag_order' : 'blank_quality' in judge ? 'inline_select'
+      : 'classification_quality' in judge ? 'drag_classify' : 'single_select';
+  }
+  const sourceKey = ['source_fidelity','syllabus_fidelity','source_match'].find(key => validMetric(judge[key]));
+  const metrics = [
+    ['source_fidelity','Fidelidad a la fuente',sourceKey],
+    ['difficulty_match','Dificultad'],
+    ...formatMetrics[type],
+    ['reasoning_quality','Razonamiento'],
+    ['clarity','Claridad']
+  ].filter(([key,,original]) => validMetric(judge[key === 'source_fidelity' ? original : key]))
+    .map(([key,label,original]) => `<span data-noa-judge-metric="${esc(key)}"${key === 'source_fidelity' ? ` data-noa-judge-source-metric="${esc(original)}"` : ''}>${esc(label)}: ${esc(judge[key === 'source_fidelity' ? original : key])}/10</span>`)
+    .join(' · ');
+
+  const review = judge.academic_review;
+  const hasReview = review && typeof review === 'object' && !Array.isArray(review);
+  const statuses = {pass:'Sin alerta detectada',fail:'Fallo detectado',uncertain:'Incierto',not_applicable:'No aplica'};
+  const criteria = [
+    ['scientific_accuracy','Exactitud científica'],
+    ['internal_consistency','Coherencia interna'],
+    ['answer_validity','Validez de la respuesta'],
+    ['conceptual_unambiguity','Ausencia de ambigüedad conceptual'],
+    ['non_overlap','Ausencia de solapamientos']
+  ];
+  const academicHTML = hasReview ? criteria.map(([key,label]) => {
+    const criterion = review[key];
+    const status = Object.prototype.hasOwnProperty.call(statuses, criterion?.status) ? criterion.status : 'unrecorded';
+    const reason = typeof criterion?.reason === 'string' && criterion.reason.trim()
+      ? criterion.reason : 'Sin justificación registrada.';
+    return `<div class="small" data-noa-judge-criterion="${esc(key)}" data-noa-judge-status="${esc(status)}"><b>${esc(label)}: ${esc(statuses[status] || 'No registrado')}</b>. ${esc(reason)}</div>`;
+  }).join('') : '<div class="small">Sin revisión académica estructurada registrada.</div>';
+  const messages = (values, label) => Array.isArray(values) && values.some(value => typeof value === 'string' && value.trim())
+    ? `<div class="small"><b>${esc(label)}</b><ul>${values.filter(value => typeof value === 'string' && value.trim()).map(value => `<li>${esc(value)}</li>`).join('')}</ul></div>` : '';
+
+  return `<div data-noa-judge-review style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px">
+    <b>NOA Judge · ${validMetric(judge.qualityScore) ? esc(judge.qualityScore) : '—'}/10</b>
+    <div class="small" style="margin-top:6px">${metrics || 'Sin métricas numéricas válidas registradas.'}</div>
+    <div style="margin-top:8px">${academicHTML}</div>
+    ${messages(judge.critical_issues,'Alertas críticas:')}
+    ${judge.contractValid === false ? '<div class="small">Evaluación incompleta o inválida.</div>' + messages(judge.validationErrors,'Errores del contrato:') : ''}
+    ${judge.requiresHumanReview === true ? '<div class="small"><b>Requiere revisión humana.</b></div>' : ''}
+    ${typeof judge.comments === 'string' && judge.comments.trim() ? `<div class="small" style="margin-top:6px">${esc(judge.comments)}</div>` : ''}
+    <p class="small">Evaluación interna de IA; no es una validación científica independiente.</p>
+  </div>`;
+}
 function renderExam(){
 
   const box = document.getElementById('examBox');
@@ -1454,7 +1514,6 @@ function renderExam(){
       examAnswers.map((a,index) => {
 
         const b = a.blueprint;
-        const j = a.judge;
 
 
         const selectedLetter =
@@ -1558,96 +1617,7 @@ function renderExam(){
             }
 
 
-            ${
-              j
-              ? `
-
-                <div
-                  style="
-                    margin-top:10px;
-                    padding:10px;
-                    border:1px solid var(--line);
-                    border-radius:10px;
-                  "
-                >
-
-                  <b>
-                    NOA Judge
-                    · ${
-                      j.qualityScore ?? '-'
-                    }/10
-                  </b>
-
-
-                  <div
-                    class="small"
-                    style="margin-top:6px"
-                  >
-
-                    Temario:
-                    ${
-                      j.syllabus_fidelity ?? '-'
-                    }/10
-
-                    · Dificultad:
-                    ${
-                      j.difficulty_match ?? '-'
-                    }/10
-
-                    · Distractores:
-                    ${
-                      j.distractor_quality ?? '-'
-                    }/10
-
-                    · Razonamiento:
-                    ${
-                      j.reasoning_quality ?? '-'
-                    }/10
-
-                    · Claridad:
-                    ${
-                      j.clarity ?? '-'
-                    }/10
-
-                  </div>
-
-
-                  ${
-                    j.comments
-                    ? `
-
-                      <div
-                        class="small"
-                        style="margin-top:6px"
-                      >
-
-                        ${
-                          esc(j.comments)
-                        }
-
-                      </div>
-
-                    `
-                    : ''
-                  }
-
-
-                </div>
-
-              `
-              : `
-
-                <div
-                  class="small"
-                  style="margin-top:8px"
-                >
-
-                  Sin evaluación Judge
-
-                </div>
-
-              `
-            }
+            ${judgeReviewHTML(a)}
 
 
             ${

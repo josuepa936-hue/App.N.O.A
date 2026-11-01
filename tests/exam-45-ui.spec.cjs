@@ -491,7 +491,7 @@ test('v25 ofrece estado accesible y permite confirmar o cancelar mediante teclad
 
 test.describe('v25 UI45 con Service Worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('v25 UI45 se almacena en caché v69 aislada y NOA conserva el acceso offline', async ({ page, context }) => {
+  test('v25 UI45 se almacena en caché v70 aislada y NOA conserva el acceso offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cache = await page.evaluate(async () => {
@@ -499,7 +499,7 @@ test.describe('v25 UI45 con Service Worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, ui: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_ui.js', scope).href) };
     });
-    expect(cache.name).toMatch(/:v6-69$/); expect(cache.ui).toBe(true);
+    expect(cache.name).toMatch(/:v6-70$/); expect(cache.ui).toBe(true);
     await context.setOffline(true); await page.reload();
     await page.waitForFunction(() => !!window.NOA_EXAM_UI_V25 && !!window.NOA_RESULTS_ENGINE);
     await page.locator('#nav button[data-page="exam"]').click();

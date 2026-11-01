@@ -642,7 +642,9 @@ context_quality
 reasoning_quality
 clarity
 
-Devuelve únicamente JSON válido.`
+Devuelve únicamente JSON válido.
+
+${window.NOA_JUDGE_ACADEMIC.instructions('inline_select')}`
 
         },
 
@@ -688,26 +690,19 @@ ${JSON.stringify(
       question.text,
 
     blanks:
-      question.blanks
+      question.blanks,
+
+    explanation:
+      question.explanation ?? question.explain ?? ''
   },
   null,
   2
 )}
 
 
-RESPUESTA:
+CONTRATO DE RESPUESTA (JSON Schema, no es un ejemplo de calificaciones):
 
-{
-  "source_fidelity":10,
-  "difficulty_match":10,
-  "blank_quality":10,
-  "option_quality":10,
-  "ambiguity_control":10,
-  "context_quality":10,
-  "reasoning_quality":10,
-  "clarity":10,
-  "comments":"comentario breve"
-}`
+${window.NOA_JUDGE_ACADEMIC.responseContract('inline_select')}`
         }
 
       ],{
@@ -717,126 +712,13 @@ RESPUESTA:
       });
 
 
-    const j =
-      parseObject(raw);
+    const {judge, accepted} = window.NOA_JUDGE_ACADEMIC.evaluate(
+      parseObject(raw), 'inline_select'
+    );
 
-
-    const keys = [
-
-      'source_fidelity',
-
-      'difficulty_match',
-
-      'blank_quality',
-
-      'option_quality',
-
-      'ambiguity_control',
-
-      'context_quality',
-
-      'reasoning_quality',
-
-      'clarity'
-
-    ];
-
-
-    const scores =
-      keys
-        .map(
-          key =>
-            Number(j[key])
-        )
-        .filter(
-          Number.isFinite
-        );
-
-
-    const qualityScore =
-      scores.length
-
-        ? Math.round(
-            (
-              scores.reduce(
-                (a,b) =>
-                  a + b,
-                0
-              ) /
-              scores.length
-            ) * 10
-          ) / 10
-
-        : null;
-
-
-    const resultJudge = {
-
-      ...Object.fromEntries(
-        keys.map(
-          key => [
-            key,
-            Number(j[key])
-          ]
-        )
-      ),
-
-      comments:
-        String(
-          j.comments || ''
-        ),
-
-      qualityScore
-
-    };
-
-
-    const accepted =
-
-      Number.isFinite(
-        qualityScore
-      ) &&
-
-      qualityScore >= 8.2 &&
-
-      resultJudge
-        .source_fidelity >= 9 &&
-
-      resultJudge
-        .difficulty_match >= 7 &&
-
-      resultJudge
-        .blank_quality >= 8 &&
-
-      resultJudge
-        .option_quality >= 7 &&
-
-      resultJudge
-        .ambiguity_control >= 8 &&
-
-      resultJudge
-        .context_quality >= 7 &&
-
-      resultJudge
-        .reasoning_quality >= 7 &&
-
-      resultJudge
-        .clarity >= 8;
-
-
-    return {
-
-      ...question,
-
-      judge:
-        resultJudge,
-
-      accepted
-
-    };
+    return {...question, judge, accepted};
 
   }
-
 
   // =====================================
   // SLOT + REINTENTOS
