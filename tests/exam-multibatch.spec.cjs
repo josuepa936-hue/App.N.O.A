@@ -449,7 +449,7 @@ test('v25 no entrega examen listo si la conversión pierde cantidad, identidad o
 
 test.describe('v25 multilote con service worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('v25 queda en caché v69 y el resto de NOA continúa disponible tras recargar offline', async ({ page, context }) => {
+  test('v25 queda en caché v70 y el resto de NOA continúa disponible tras recargar offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cached = await page.evaluate(async () => {
@@ -457,7 +457,7 @@ test.describe('v25 multilote con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, module: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_multibatch.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-69$/);
+    expect(cached.name).toMatch(/:v6-70$/);
     expect(cached.module).toBe(true);
     await context.setOffline(true);
     await page.reload();

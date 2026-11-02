@@ -799,7 +799,9 @@ reasoning_quality
 clarity
 = instrucciones y redacción claras.
 
-Devuelve únicamente JSON válido.`
+Devuelve únicamente JSON válido.
+
+${window.NOA_JUDGE_ACADEMIC.instructions('drag_classify')}`
 
         },
 
@@ -857,7 +859,10 @@ ${JSON.stringify(
       question.elements,
 
     correctResponse:
-      question.correctResponse
+      question.correctResponse,
+
+    explanation:
+      question.explanation ?? question.explain ?? ''
 
   },
   null,
@@ -865,18 +870,9 @@ ${JSON.stringify(
 )}
 
 
-DEVUELVE:
+CONTRATO DE RESPUESTA (JSON Schema, no es un ejemplo de calificaciones):
 
-{
-  "source_fidelity":10,
-  "difficulty_match":10,
-  "classification_quality":10,
-  "element_quality":10,
-  "ambiguity_control":10,
-  "reasoning_quality":10,
-  "clarity":10,
-  "comments":"comentario breve"
-}`
+${window.NOA_JUDGE_ACADEMIC.responseContract('drag_classify')}`
         }
 
       ],{
@@ -886,145 +882,13 @@ DEVUELVE:
       });
 
 
-    const j =
-      parseObject(raw);
-
-
-    const values = [
-
-      Number(
-        j.source_fidelity
-      ),
-
-      Number(
-        j.difficulty_match
-      ),
-
-      Number(
-        j.classification_quality
-      ),
-
-      Number(
-        j.element_quality
-      ),
-
-      Number(
-        j.ambiguity_control
-      ),
-
-      Number(
-        j.reasoning_quality
-      ),
-
-      Number(
-        j.clarity
-      )
-
-    ].filter(
-      Number.isFinite
+    const {judge, accepted} = window.NOA_JUDGE_ACADEMIC.evaluate(
+      parseObject(raw), 'drag_classify'
     );
 
-
-    const qualityScore =
-      values.length
-
-        ? values.reduce(
-            (a,b) =>
-              a + b,
-            0
-          ) /
-          values.length
-
-        : null;
-
-
-    const judge = {
-
-      source_fidelity:
-        Number(
-          j.source_fidelity
-        ),
-
-      difficulty_match:
-        Number(
-          j.difficulty_match
-        ),
-
-      classification_quality:
-        Number(
-          j.classification_quality
-        ),
-
-      element_quality:
-        Number(
-          j.element_quality
-        ),
-
-      ambiguity_control:
-        Number(
-          j.ambiguity_control
-        ),
-
-      reasoning_quality:
-        Number(
-          j.reasoning_quality
-        ),
-
-      clarity:
-        Number(
-          j.clarity
-        ),
-
-      comments:
-        String(
-          j.comments || ''
-        ),
-
-      qualityScore:
-        qualityScore === null
-          ? null
-          : Math.round(
-              qualityScore * 10
-            ) / 10
-
-    };
-
-
-    const accepted =
-
-      Number.isFinite(
-        judge.qualityScore
-      ) &&
-
-      judge.qualityScore >= 8.2 &&
-
-      judge.source_fidelity >= 9 &&
-
-      judge.difficulty_match >= 7 &&
-
-      judge.classification_quality >= 8 &&
-
-      judge.element_quality >= 7 &&
-
-      judge.ambiguity_control >= 8 &&
-
-      judge.reasoning_quality >= 7 &&
-
-      judge.clarity >= 8;
-
-
-    return {
-
-      ...question,
-
-      judge,
-
-      accepted
-
-    };
+    return {...question, judge, accepted};
 
   }
-
 
   // =====================================
   // GENERAR SLOT DRAG
