@@ -18,6 +18,79 @@
   const optionsValid = item => Array.isArray(item.options) && item.options.length > 0 &&
     item.options.every(text) && Number.isInteger(item.correct) && item.correct >= 0 && item.correct < item.options.length;
 
+
+  // The opt-in checker only observes memory after Generator and Judge approval.
+  // No fingerprints or memory entries escape this closure into diagnostics.
+  function createHistoryChecker(){
+    const history = {enabled:true,status:'not_checked',checked:0,skipped:0,duplicates:0,complete:false,issues:[]};
+    const snapshot = () => JSON.parse(JSON.stringify(history));
+    function inspect(){
+      const memory = window.NOA_QUESTION_MEMORY_V25_2;
+      try{
+        if(typeof memory?.stats !== 'function' || typeof memory?.contains !== 'function'){
+          return {memory,status:'unavailable',error:'api_unavailable'};
+        }
+        const stats = memory.stats();
+        if(stats?.ok !== true){
+          const error = stats?.error || 'invalid_memory_stats';
+          return {memory,status:error === 'corrupt_storage' ? 'corrupt' : 'unavailable',error};
+        }
+        if(!Number.isSafeInteger(stats.uniqueQuestions) || stats.uniqueQuestions < 0 ||
+          !Number.isSafeInteger(stats.totalSeen) || stats.totalSeen < stats.uniqueQuestions){
+          return {memory,status:'unavailable',error:'invalid_memory_stats'};
+        }
+        return {memory,status:stats.uniqueQuestions ? 'ready' : 'empty'};
+      }catch{ return {memory,status:'unavailable',error:'memory_exception'}; }
+    }
+    function issue(state,context,skipped){
+      history.status = state.status;
+      if(skipped) history.skipped++;
+      history.issues.push({...context,reason:state.error || 'memory_check_failed'});
+      history.complete = false;
+    }
+    async function check(question,context,canonicalKey = false){
+      const before = inspect();
+      let key = null, keyError = null;
+      if(canonicalKey){
+        try{
+          if(!globalThis.crypto?.subtle) keyError = 'crypto_unavailable';
+          else if(typeof before.memory?.fingerprint !== 'function') keyError = 'api_unavailable';
+          else{
+            const hash = await before.memory.fingerprint(question);
+            if(typeof hash === 'string' && /^qm1:sha256:[a-f0-9]{64}$/.test(hash)) key = hash;
+            else keyError = 'fingerprint_unavailable';
+          }
+        }catch{ keyError = 'fingerprint_unavailable'; }
+      }
+      if(before.error || keyError){
+        issue(before.error ? before : {status:'unavailable',error:keyError},context,true);
+        return {duplicate:false,key};
+      }
+      try{
+        const result = await before.memory.contains(question,{details:true});
+        if(!result || result.ok !== true || typeof result.contains !== 'boolean'){
+          const error = result?.ok === false && typeof result.error === 'string' ? result.error : 'invalid_memory_result';
+          issue({status:error === 'corrupt_storage' ? 'corrupt' : 'unavailable',error},context,true);
+          return {duplicate:false,key};
+        }
+        history.checked++;
+        if(result.contains) history.duplicates++;
+        const after = inspect();
+        if(after.memory !== before.memory || after.error){
+          issue(after.error ? after : {status:'unavailable',error:'memory_changed'},context,false);
+        }else{
+          history.status = after.status;
+          history.complete = history.checked > 0 && history.skipped === 0 && history.issues.length === 0;
+        }
+        return {duplicate:result.contains,key};
+      }catch{
+        issue({status:'unavailable',error:'memory_check_failed'},context,true);
+        return {duplicate:false,key};
+      }
+    }
+    return {check,snapshot};
+  }
+
   function validatePlan(plan){
     assert(window.NOA_EXAM_PLAN_V25 && window.NOA_SOURCE_BLUEPRINT?.replaceSlot &&
       window.NOA_BLUEPRINT_GENERATOR?.generateSlot && window.NOA_MIXED_EXAM?.questionsFromBatch,
@@ -161,20 +234,27 @@
     return stable(content);
   }
 
-  async function generate({plan, concurrency = 2, maxAttempts = 2, onProgress} = {}){
+  async function generate({plan, concurrency = 2, maxAttempts = 2, onProgress, avoidHistoryDuplicates = false} = {}){
+    assert(typeof avoidHistoryDuplicates === 'boolean', 'avoidHistoryDuplicates debe ser booleano.');
     assert(!active, 'Ya existe una generación multibatch activa.');
     const snapshot = clone(plan || null);
     validatePlan(snapshot);
     const parallel = limit(concurrency, 2), attempts = limit(maxAttempts, 2);
     const generated = [], failures = [], duplicates = [], replacements = [], fallbacks = [], progressErrors = [];
     const accepted = new Map(), contents = new Map(), ids = new Map();
+    const checker = avoidHistoryDuplicates ? createHistoryChecker() : null;
+    const historicalDuplicates = [];
+    let generationErrors = 0;
+    const diagnostics = () => ({accepted:accepted.size,
+      internalDuplicates:new Set(duplicates.map(item => `${item.planSlotId}:${item.attempt}`)).size,
+      historicalDuplicates:historicalDuplicates.length,replacements:replacements.length,generationErrors,history:checker.snapshot()});
     let processed = 0;
     let progress = Promise.resolve();
     active = true;
     function report(item, status = 'generating'){
       const event = Object.freeze({groupId:item.groupId, subject:item.subject, processed,
         accepted:accepted.size, failed:failures.filter(failure => failure.planSlotId !== null).length,
-        requested:TOTAL, status});
+        requested:TOTAL, status, ...(checker ? {diagnostics:diagnostics()} : {})});
       progress = progress.then(async () => {
         if(typeof onProgress !== 'function') return;
         try{ await onProgress(event); }catch(error){ progressErrors.push(error?.message || String(error)); }
@@ -187,11 +267,12 @@
       const history = [];
       for(let attempt = 1; attempt <= attempts; attempt++){
         let record = null;
+        let reason = 'generation_error';
         try{
           if(attempt > 1){
             const next = window.NOA_SOURCE_BLUEPRINT.replaceSlot(clone(original), attempt - 1);
             validateLocked(next, original);
-            replacements.push({planSlotId:item.id, attempt, reason:history.at(-1).error,
+            replacements.push({planSlotId:item.id, attempt, reason:checker ? history.at(-1).reason : history.at(-1).error,
               fromSlot:clone(current), toSlot:clone(next)});
             current = next;
           }
@@ -206,6 +287,16 @@
             attempt, valid:false, duplicate:false};
           generated.push(record);
           const question = validateResult(result, current, item);
+          if(checker){
+            const historical = await checker.check(question,{planSlotId:item.id,slotId:original.slotId,attempt});
+            if(historical.duplicate){
+              reason = 'historical_duplicate';
+              record.duplicate = true;
+              record.historicalDuplicate = true;
+              historicalDuplicates.push({planSlotId:item.id,slotId:original.slotId,attempt,reason});
+              throw new Error(reason);
+            }
+          }
           const key = questionKey(question);
           for(const [kind, seen, candidate] of [['content', contents, key], ['id', ids, question.id]]){
             if(seen.has(candidate)){
@@ -213,6 +304,7 @@
               duplicates.push({planSlotId:item.id, attempt, questionId:question.id, kind, duplicateOf:seen.get(candidate)});
             }
           }
+          if(record.duplicate) reason = 'internal_duplicate';
           assert(!record.duplicate, 'Reactivo duplicado globalmente por contenido o ID.');
           contents.set(key, item.id);
           ids.set(question.id, item.id);
@@ -222,7 +314,8 @@
           break;
         }catch(error){
           const message = error?.message || String(error);
-          history.push({attempt, error:message});
+          if(checker && reason === 'generation_error') generationErrors++;
+          history.push({attempt, error:message, ...(checker ? {reason} : {})});
           if(record) record.validationError = message;
         }
       }
@@ -282,11 +375,14 @@
         [...accepted.values()].filter(item => item.subject === subject.id).length]));
       return {requested:TOTAL, accepted:accepted.size, complete, groups, subjectCounts, generated, failures,
         duplicates, replacements, fallbacks, questions,
+        ...(checker ? {historicalDuplicates,diagnostics:diagnostics()} : {}),
         summary:{requested:TOTAL, processed, generated:generated.length, accepted:accepted.size,
           failed:failures.filter(failure => failure.planSlotId !== null).length,
           conversionErrors:failures.filter(failure => failure.stage === 'conversion').length,
           duplicates:duplicates.length, replacements:replacements.length, fallbacks:fallbacks.length,
-          concurrency:parallel, maxAttempts:attempts, progressErrors, complete}};
+          concurrency:parallel, maxAttempts:attempts, progressErrors, complete,
+          ...(checker ? {internalDuplicates:diagnostics().internalDuplicates,historicalDuplicates:historicalDuplicates.length,
+            generationErrors,history:checker.snapshot()} : {})}};
     }finally{
       await progress;
       active = false;

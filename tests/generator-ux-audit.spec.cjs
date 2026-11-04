@@ -88,7 +88,8 @@ test('v24 permite recorrer controles por teclado y anuncia el error sin bloquear
   await page.keyboard.press('Enter');
   await expect(page.locator('#noaGeneratorPhase')).toHaveText('Generando y evaluando reactivos');
   expect(await page.evaluate(() => window.__batchCalls)).toEqual([{
-    subject: selectedSubject, blueprintCount: 10, limit: 10, concurrency: 2, maxAttempts: 2
+    subject: selectedSubject, blueprintCount: 10, limit: 10, concurrency: 2, maxAttempts: 2,
+    diversifyTopics: true, avoidHistoryDuplicates: true
   }]);
   await expect(page.locator('#noaGeneratorGenerate')).toBeDisabled();
   await page.evaluate(() => window.__batchPending.reject(new Error('Fallo sintético desde teclado')));

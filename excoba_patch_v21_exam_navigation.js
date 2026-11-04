@@ -1955,7 +1955,7 @@
   // FINALIZAR EXAMEN
   // =====================================
 
-  function finishExam(){
+  async function finishExam(){
 
     const mixed =
       mixedState();
@@ -2011,12 +2011,24 @@
     closeRenderers();
 
 
+    const sessionAnswers = examAnswers, sessionDatabase = db, previousIndex = Math.min(examIndex, examQueue.length - 1);
+
     examIndex =
       examQueue.length;
 
+    try{
+      await commitCompletedExam();
+    }catch{
+      if(db === sessionDatabase && examAnswers === sessionAnswers){
+        examIndex = previousIndex;
+        toast('No pude guardar el examen. Conserva esta pestaña e inténtalo otra vez.');
+        renderExam();
+      }
+      return;
+    }
+    if(db !== sessionDatabase || examAnswers !== sessionAnswers) return;
 
     renderExam();
-
 
     drafts.clear();
 
@@ -2157,7 +2169,7 @@
 
         }else{
 
-          finishExam();
+          return finishExam();
 
         }
 
@@ -2595,6 +2607,7 @@
   window.NOA_EXAM_RECOVERY = {
     save:persistSession,
     recover:recoverSession,
+    validate:validRecovery,
     state:() => ({saved:!!db.activeExam, recovering:recoveringSession})
   };
 
