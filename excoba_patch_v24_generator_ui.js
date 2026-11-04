@@ -7,6 +7,7 @@
   let busy = false;
   let phase = 'Listo para generar';
   let message = '';
+  let diagnostics = null;
 
   function subjects(){
     const syllabus = window.NOA_EXCOBA_V4;
@@ -18,6 +19,30 @@
     message = details;
     element('noaGeneratorPhase').textContent = next;
     element('noaGeneratorDetails').textContent = details;
+  }
+
+  function historyMessage(history){
+    if(!history) return 'Historial: todavía no se ha comprobado la repetición histórica.';
+    if(history.status === 'corrupt') return 'Memoria corrupta: no se pudo comprobar la repetición histórica. Se conserva la memoria y la comprobación de duplicados del lote.';
+    if(history.status === 'unavailable'){
+      const reason = history.issues?.at(-1)?.reason;
+      const label = reason === 'storage_unavailable' ? 'Almacenamiento no disponible' : 'Comprobación histórica no disponible';
+      return `${label}: no se pudo comprobar la repetición histórica. Se mantiene la comprobación de duplicados del lote.`;
+    }
+    if(history.status === 'not_checked') return 'No se comprobó la repetición histórica: no hubo reactivos aprobados para comprobar.';
+    if(!['ready', 'empty'].includes(history.status) || history.complete !== true ||
+      !Number.isInteger(history.checked) || history.checked < 1 || history.skipped !== 0){
+      return 'La repetición histórica no pudo comprobarse en todos los reactivos. Se mantiene la comprobación de duplicados del lote.';
+    }
+    return history.status === 'empty'
+      ? 'Historial vacío: la comprobación histórica se realizó sin registros anteriores.'
+      : 'Historial disponible: se comprobó la repetición histórica de los reactivos aprobados.';
+  }
+
+  function showDiagnostics(value){
+    diagnostics = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : null;
+    const history = element('noaGeneratorHistory');
+    if(history) history.textContent = historyMessage(diagnostics?.history);
   }
 
   function refresh(){
@@ -117,12 +142,20 @@
     const failures = Array.isArray(batch?.failures) ? batch.failures : [];
     const duplicates = generated.filter(item => item.duplicate).length;
     const rejected = generated.filter(item => !item.duplicate && item.question?.accepted !== true).length;
+    if(batch?.diagnostics){
+      const countOf = name => Number.isInteger(batch.diagnostics[name]) && batch.diagnostics[name] >= 0
+        ? batch.diagnostics[name] : 'no informadas';
+      return `Aceptadas: ${accepted} de ${count}. Fallidas o rechazadas: ${failures.length + rejected}. ` +
+        `Duplicadas dentro del lote: ${countOf('internalDuplicates')}. Duplicadas históricas: ${countOf('historicalDuplicates')}. ` +
+        `Reposiciones: ${countOf('replacements')}. Fallos de generación: ${countOf('generationErrors')}.`;
+    }
     return `Aceptadas: ${accepted} de ${count}. Fallidas o rechazadas: ${failures.length + rejected}. Duplicadas: ${duplicates}.`;
   }
 
   async function generate(){
     if(busy || window.NOA_EXAM_UI_V25?.state?.()?.busy) return;
     busy = true;
+    showDiagnostics(null);
     window.NOA_EXAM_UI_V25?.refresh?.();
     try{
       if(!refresh()) return;
@@ -144,10 +177,12 @@
       status('Preparando generación', 'Preparando materia, perfil y ciclo de dificultad.');
       await new Promise(resolve => setTimeout(resolve, 0));
       const pending = window.NOA_BATCH_ORCHESTRATOR.generate({
-        subject, blueprintCount:count, limit:count, concurrency:2, maxAttempts:2
+        subject, blueprintCount:count, limit:count, concurrency:2, maxAttempts:2,
+        diversifyTopics:true, avoidHistoryDuplicates:true
       });
       status('Generando y evaluando reactivos', 'NOA está generando y evaluando el lote. Tu sesión actual se conserva.');
       const batch = await pending;
+      showDiagnostics(batch?.diagnostics);
       const questions = window.NOA_MIXED_EXAM.questionsFromBatch(batch);
       const counts = summary(batch, questions.length, count);
       if(questions.length !== count){
@@ -206,6 +241,7 @@
       <p class="small" id="noaGeneratorCalibration"></p>
       <div class="small" id="noaGeneratorStatus" role="status" aria-live="polite" aria-atomic="true">
         <b id="noaGeneratorPhase"></b><p id="noaGeneratorDetails"></p>
+        <p id="noaGeneratorHistory"></p>
       </div>
       <p class="small">Judge es una evaluación interna de NOA; no es una validación oficial de la UAQ.</p>
       <button class="btn primary" id="noaGeneratorGenerate" type="button" disabled aria-describedby="noaGeneratorStatus">Generar con IA</button>
@@ -227,7 +263,8 @@
     });
     window.addEventListener('focus', refresh);
     window.addEventListener('pageshow', refresh);
-    window.NOA_GENERATOR_UI = {version:'24.2-batch', refresh, generate, state:() => ({busy, phase})};
+    window.NOA_GENERATOR_UI = {version:'24.2-batch', refresh, generate, state:() => ({busy, phase, diagnostics:diagnostics ? JSON.parse(JSON.stringify(diagnostics)) : null})};
+    showDiagnostics(null);
     refresh();
   }
 

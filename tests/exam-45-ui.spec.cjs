@@ -134,7 +134,7 @@ test('v25 genera 45 con plan real, progreso de cero a 45, nueve materias y doble
   expect(payload.plan.total).toBe(45);
   expect(payload.plan.unsupportedSlots).toEqual([]);
   expect(payload.stats.blueprints).toHaveLength(9);
-  expect(payload.stats.multiCalls).toEqual([{ concurrency: 2, maxAttempts: 2, total: 45 }]);
+  expect(payload.stats.multiCalls).toEqual([{ concurrency: 2, maxAttempts: 2, total: 45, avoidHistoryDuplicates: true }]);
   expect(payload.stats.starts).toEqual([{ count: 45, title }]);
   expect(payload.stats.confirmations).toHaveLength(1);
   expect(payload.stats.confirmations[0].generatorCalls).toBe(0);
@@ -491,7 +491,7 @@ test('v25 ofrece estado accesible y permite confirmar o cancelar mediante teclad
 
 test.describe('v25 UI45 con Service Worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('v25 UI45 se almacena en caché v73 aislada y NOA conserva el acceso offline', async ({ page, context }) => {
+  test('v25 UI45 se almacena en caché v74 aislada y NOA conserva el acceso offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cache = await page.evaluate(async () => {
@@ -499,7 +499,7 @@ test.describe('v25 UI45 con Service Worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, ui: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_ui.js', scope).href) };
     });
-    expect(cache.name).toMatch(/:v6-73$/); expect(cache.ui).toBe(true);
+    expect(cache.name).toMatch(/:v6-74$/); expect(cache.ui).toBe(true);
     await context.setOffline(true); await page.reload();
     await page.waitForFunction(() => !!window.NOA_EXAM_UI_V25 && !!window.NOA_RESULTS_ENGINE);
     await page.locator('#nav button[data-page="exam"]').click();

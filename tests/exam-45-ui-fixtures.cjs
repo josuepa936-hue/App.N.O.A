@@ -42,7 +42,7 @@ async function installExam45Fixture(page, configuration = {}) {
     };
     NOA_MULTI_BATCH_V25.generate = async options => {
       fixture.stats.multiCalls.push({ concurrency: options.concurrency,
-        maxAttempts: options.maxAttempts, total: options.plan.total });
+        maxAttempts: options.maxAttempts, total: options.plan.total, avoidHistoryDuplicates: options.avoidHistoryDuplicates });
       fixture.callbacks.push(options.onProgress);
       const result = await natives.multi({ ...options, onProgress: async progress => {
         fixture.stats.progress.push(clone(progress));

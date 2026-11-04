@@ -9,7 +9,8 @@
   const TOTAL = 45;
   const COMPATIBLE_INTERACTIONS = ['single_select', 'drag_classify', 'inline_select', 'drag_order'];
 
-  function build(){
+  function build({diversifyTopics = false} = {}){
+    if(typeof diversifyTopics !== 'boolean') throw new Error('diversifyTopics debe ser booleano.');
     const syllabus = window.NOA_EXCOBA_V4;
     const blueprintEngine = window.NOA_SOURCE_BLUEPRINT;
     const supported = window.NOA_BATCH_ORCHESTRATOR?.supportedTypes;
@@ -63,7 +64,8 @@
               fail('missing_syllabus', 'Faltan puntos del Temario Maestro para esta materia.', {subject:subject.value});
               continue;
             }
-            const blueprint = blueprintEngine.build({subject:subject.value, count:PER_SUBJECT, supportedInteractionTypes});
+            const blueprint = blueprintEngine.build({subject:subject.value, count:PER_SUBJECT, supportedInteractionTypes,
+              ...(diversifyTopics ? {diversifyTopics:true} : {})});
             // Se conserva el Blueprint completo, incluido su createdAt informativo.
             // La distribución, las identidades y los slots son deterministas para
             // el mismo Temario, perfil, Calibrator y fuentes disponibles.

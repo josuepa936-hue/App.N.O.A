@@ -411,7 +411,7 @@ test('diversidad expone trazabilidad compacta fuera de la fuente y las reglas en
   }
 });
 
-test('diversidad no se activa en el plan45 ni en los contratos de sus interfaces existentes', async ({ page }) => {
+test('API del plan45 mantiene la diversidad opcional y v24 conserva las cantidades 5/10', async ({ page }) => {
   await seedRanking(page);
   const result = await page.evaluate(() => {
     const native = NOA_SOURCE_BLUEPRINT.build, options = [];
@@ -494,6 +494,6 @@ test.describe('diversidad con Service Worker real', () => {
       const names = (await caches.keys()).filter(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { names, blueprint: !!await (await caches.open(names[0])).match(new URL('excoba_patch_v8_blueprint.js', scope).href) };
     });
-    expect(cache.names).toHaveLength(1); expect(cache.names[0]).toMatch(/:v6-73$/); expect(cache.blueprint).toBe(true);
+    expect(cache.names).toHaveLength(1); expect(cache.names[0]).toMatch(/:v6-74$/); expect(cache.blueprint).toBe(true);
   });
 });

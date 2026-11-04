@@ -290,9 +290,26 @@
     return result;
   }
 
-  async function contains(question){
-    const subject = subjectFor(question), hash = await fingerprint(question), state = readStore();
-    return !!(subject && hash && state.ok && state.data.entries.some(entry => entry.subject === subject && entry.fingerprint === hash));
+  async function contains(question, options){
+    // Preserve the original boolean contract, including its error behavior.
+    if(options?.details !== true){
+      const subject = subjectFor(question), hash = await fingerprint(question), state = readStore();
+      return !!(subject && hash && state.ok && state.data.entries.some(entry => entry.subject === subject && entry.fingerprint === hash));
+    }
+    // The opt-in result distinguishes an absent question from an unchecked one.
+    // Only this read decides success; callers cannot infer it from a later stats().
+    try{
+      const subject = subjectFor(question);
+      if(!subject) return {ok:false, contains:false, error:'invalid_subject'};
+      const canonical = canonicalQuestion(question);
+      if(!canonical) return {ok:false, contains:false, error:'invalid_question'};
+      if(!globalThis.crypto?.subtle) return {ok:false, contains:false, error:'crypto_unavailable'};
+      const hash = await hashCanonical(canonical);
+      if(!hash) return {ok:false, contains:false, error:'fingerprint_unavailable'};
+      const state = readStore();
+      if(!state.ok) return {ok:false, contains:false, error:state.error};
+      return {ok:true, contains:state.data.entries.some(entry => entry.subject === subject && entry.fingerprint === hash)};
+    }catch{ return {ok:false, contains:false, error:'memory_exception'}; }
   }
 
   async function recordExamInternal(questions, sessionId, options, epoch){

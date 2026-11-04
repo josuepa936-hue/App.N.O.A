@@ -9,7 +9,7 @@
   const text = value => typeof value === 'string' && value.trim().length > 0;
   const pause = () => new Promise(resolve => setTimeout(resolve, 0));
   let busy = false, sequence = 0, phase = 'Listo para generar';
-  let progress = null, activePlan = null;
+  let progress = null, activePlan = null, diagnostics = null;
 
   function peerBusy(){ return !!window.NOA_GENERATOR_UI?.state?.()?.busy; }
   function activeExam(){ return examQueue.length > 0 && examIndex >= 0 && examIndex < examQueue.length; }
@@ -17,6 +17,31 @@
     phase = next;
     element('Phase').textContent = next;
     element('Details').textContent = details;
+  }
+  function historyMessage(history){
+    if(!history) return 'Historial: todavía no se ha comprobado la repetición histórica.';
+    if(history.status === 'corrupt') return 'Memoria corrupta: no se pudo comprobar la repetición histórica. Se conserva la memoria y la comprobación de duplicados del lote.';
+    if(history.status === 'unavailable'){
+      const reason = history.issues?.at(-1)?.reason;
+      const label = reason === 'storage_unavailable' ? 'Almacenamiento no disponible' : 'Comprobación histórica no disponible';
+      return `${label}: no se pudo comprobar la repetición histórica. Se mantiene la comprobación de duplicados del lote.`;
+    }
+    if(history.status === 'not_checked') return 'No se comprobó la repetición histórica: no hubo reactivos aprobados para comprobar.';
+    if(!['ready', 'empty'].includes(history.status) || history.complete !== true ||
+      !Number.isInteger(history.checked) || history.checked < 1 || history.skipped !== 0){
+      return 'La repetición histórica no pudo comprobarse en todos los reactivos. Se mantiene la comprobación de duplicados del lote.';
+    }
+    return history.status === 'empty'
+      ? 'Historial vacío: la comprobación histórica se realizó sin registros anteriores.'
+      : 'Historial disponible: se comprobó la repetición histórica de los reactivos aprobados.';
+  }
+  function showDiagnostics(value){
+    diagnostics = value && typeof value === 'object' ? JSON.parse(JSON.stringify(value)) : null;
+    const count = key => Number.isInteger(diagnostics?.[key]) && diagnostics[key] >= 0 ? diagnostics[key] : '—';
+    element('DiversityMetrics').textContent = `Duplicadas dentro del lote: ${count('internalDuplicates')} · ` +
+      `Duplicadas históricas: ${count('historicalDuplicates')} · Reposiciones: ${count('replacements')} · ` +
+      `Fallos de generación: ${count('generationErrors')}`;
+    element('History').textContent = historyMessage(diagnostics?.history);
   }
   function showProgress(){
     const subject = activePlan?.subjects.find(item => item.id === progress?.subject);
@@ -127,6 +152,7 @@
     let acceptingProgress = false, starting = false;
     activePlan = null;
     progress = null;
+    showDiagnostics(null);
     showProgress();
     refresh();
     window.NOA_GENERATOR_UI?.refresh?.();
@@ -135,7 +161,7 @@
       await pause();
       assert(typeof window.NOA_EXAM_PLAN_V25?.build === 'function' && typeof window.NOA_MULTI_BATCH_V25?.generate === 'function' &&
         typeof window.NOA_MIXED_EXAM?.start === 'function', 'Faltan los motores del simulacro de 45 reactivos.');
-      const plan = window.NOA_EXAM_PLAN_V25.build();
+      const plan = window.NOA_EXAM_PLAN_V25.build({diversifyTopics:true});
       assert(plan?.valid === true && plan.total === 45 && Array.isArray(plan.unsupportedSlots) && !plan.unsupportedSlots.length &&
         plan.slots?.length === 45 && plan.subjects?.length === 9,
       `Plan académico inválido. ${plan?.errors?.[0]?.message || 'Se requieren 45 slots compatibles de las nueve materias.'}`);
@@ -152,7 +178,7 @@
       status('Generando reactivos', 'Preparando 45 reactivos con evaluación interna de Judge. Se conserva la sesión anterior.');
       acceptingProgress = true;
       const result = await window.NOA_MULTI_BATCH_V25.generate({
-        plan, concurrency:2, maxAttempts:2,
+        plan, concurrency:2, maxAttempts:2, avoidHistoryDuplicates:true,
         onProgress:event => {
           if(!busy || run !== sequence || !acceptingProgress) return;
           const subject = activePlan.subjects.find(item => item.id === event?.subject && item.groupId === event?.groupId);
@@ -160,10 +186,12 @@
           if(!subject || event.requested !== 45 || !values.every(value => Number.isInteger(value) && value >= 0 && value <= 45) ||
             event.accepted + event.failed !== event.processed || (progress && event.processed < progress.processed)) return;
           progress = {...event};
+          showDiagnostics(event.diagnostics);
           showProgress();
         }
       });
       acceptingProgress = false;
+      showDiagnostics(result?.diagnostics);
       status('Evaluando y preparando examen', 'Verificando cantidad, identidad global, distribución y trazabilidad del lote.');
       await pause();
       if(result?.complete !== true || result.accepted !== 45 || !Array.isArray(result.questions) || result.questions.length !== 45 ||
@@ -229,6 +257,7 @@
       <p class="small">Distribución proporcional del esquema EXCOBA Medicina. Los formatos están limitados a selección única, clasificación, selección en espacios y ordenamiento, los cuatro actualmente implementados por NOA. No representan todas las interacciones ni las frecuencias oficiales del EXCOBA. Judge es una evaluación interna de NOA, no una validación oficial de la UAQ.</p>
       <div id="noaExam45Status" role="status" aria-live="polite" aria-atomic="true">
         <b id="noaExam45Phase"></b><p class="small" id="noaExam45Details"></p>
+        <p class="small" id="noaExam45History"></p><p class="small" id="noaExam45DiversityMetrics"></p>
         <div class="small" id="noaExam45Progress">
           <p id="noaExam45Subject"></p><p id="noaExam45Group"></p>
           <p id="noaExam45Processed"></p><p id="noaExam45Accepted"></p><p id="noaExam45Failed"></p>
@@ -246,8 +275,10 @@
     document.addEventListener('click', event => { if(event.target.closest('#nav button[data-page="exam"]')) refresh(); });
     window.addEventListener('focus', refresh);
     window.addEventListener('pageshow', refresh);
-    window.NOA_EXAM_UI_V25 = {version:'25.2-ui', refresh, generate, state:() => ({busy, phase, progress:progress ? {...progress} : null})};
+    window.NOA_EXAM_UI_V25 = {version:'25.2-ui', refresh, generate, state:() => ({busy, phase, progress:progress ? JSON.parse(JSON.stringify(progress)) : null,
+      diagnostics:diagnostics ? JSON.parse(JSON.stringify(diagnostics)) : null})};
     status('Listo para generar', 'Prepara un simulacro de nueve materias con un lote completo de 45 reactivos.');
+    showDiagnostics(null);
     showProgress();
     refresh();
   }
