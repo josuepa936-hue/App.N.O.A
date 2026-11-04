@@ -299,16 +299,20 @@ test('memoria conserva intactos examen, revisión, borradores, historial y Calib
   expect(await memoryState(page)).toEqual(before);
 });
 
-test('memoria no se conecta automáticamente a inicio, respuestas, finalización ni recarga de un examen', async ({ page }) => {
+test('memoria registra solo después de guardar el intento final y no se duplica al recargar', async ({ page }) => {
   await start(page, memoryQuestions);
+  expect(await storedMemory(page)).toBeNull();
   for (let index = 0; index < memoryQuestions.length; index++) { await navigate(page, index); await answer(page, memoryQuestions[index]); }
+  expect(await storedMemory(page)).toBeNull();
   await page.locator('#noaShellFinish').click();
   await expect(page.locator('#examBox > h2')).toHaveText('Resultado: 4 / 4');
-  expect(await storedMemory(page)).toBeNull();
-  expect(await page.evaluate(() => NOA_QUESTION_MEMORY_V25_2.stats().uniqueQuestions)).toBe(0);
+  await page.evaluate(() => NOA_QUESTION_MEMORY_V25_2.whenIdle());
+  const beforeReload = await storedMemory(page);
+  expect(beforeReload).not.toBeNull();
+  expect(await page.evaluate(() => NOA_QUESTION_MEMORY_V25_2.stats())).toMatchObject({ uniqueQuestions: 4, totalSeen: 4, sessions: 1 });
   await page.reload();
   await page.waitForFunction(() => !!window.NOA_QUESTION_MEMORY_V25_2);
-  expect(await storedMemory(page)).toBeNull();
+  expect(await storedMemory(page)).toBe(beforeReload);
   expect(await page.evaluate(() => db.attempts.length)).toBe(1);
 });
 
@@ -333,7 +337,9 @@ test('memoria identifica el historial actual incompleto como no reconstruible si
   await start(page, memoryQuestions);
   for (let index = 0; index < memoryQuestions.length; index++) { await navigate(page, index); await answer(page, memoryQuestions[index]); }
   await page.locator('#noaShellFinish').click();
+  await page.evaluate(() => NOA_QUESTION_MEMORY_V25_2.whenIdle());
   const before = await memoryState(page);
+  const memoryBefore = await storedMemory(page);
   const result = await page.evaluate(async () => {
     const recovered = await NOA_QUESTION_MEMORY_V25_2.recoverHistory();
     return { recovered, attempts: structuredClone(db.attempts), stats: NOA_QUESTION_MEMORY_V25_2.stats() };
@@ -342,7 +348,8 @@ test('memoria identifica el historial actual incompleto como no reconstruible si
   expect(result.recovered.recovered).toBe(0);
   expect(result.recovered.skipped).toBe(4);
   expect(result.recovered.issues.length).toBeGreaterThan(0);
-  expect(result.stats.uniqueQuestions).toBe(0);
+  expect(result.stats).toMatchObject({ uniqueQuestions: 4, totalSeen: 4, sessions: 1 });
+  expect(await storedMemory(page)).toBe(memoryBefore);
   expect(await memoryState(page)).toEqual(before);
   await testInfo.attach('historial-real-no-reconstruible', { body: JSON.stringify(result, null, 2), contentType: 'application/json' });
 });
@@ -398,7 +405,7 @@ test.describe('memoria con Service Worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, module: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_question_memory.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-71$/);
+    expect(cached.name).toMatch(/:v6-72$/);
     expect(cached.module).toBe(true);
     await page.evaluate(async questions => NOA_QUESTION_MEMORY_V25_2.recordExam(questions, 'before-offline'), memoryQuestions);
     await context.setOffline(true); await page.reload();

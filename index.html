@@ -1380,6 +1380,104 @@ function judgeReviewHTML(answer){
     <p class="small">Evaluación interna de IA; no es una validación científica independiente.</p>
   </div>`;
 }
+// Commit an exam once at its explicit completion boundary, before presenting it.
+// The memory operation is secondary: its failure never rolls back an attempt.
+const noaCompletedExamCommits = new WeakMap();
+function reportExamCommitDiagnostic(detail){
+  try{
+    if(typeof window.NOA_QUESTION_MEMORY_V25_2?.reportDiagnostic === 'function'){
+      window.NOA_QUESTION_MEMORY_V25_2.reportDiagnostic(detail);
+      return;
+    }
+  }catch{}
+  console.warn('NOA_QUESTION_MEMORY_COMMIT', detail);
+}
+async function commitCompletedExam(){
+  const sessionAnswers = examAnswers;
+  const previous = noaCompletedExamCommits.get(sessionAnswers);
+  if(previous) return previous;
+  if(!examQueue.length || examIndex < examQueue.length || examAnswers.length !== examQueue.length){
+    reportExamCommitDiagnostic({operation:'attempt_commit', error:'incomplete_exam'});
+    return null;
+  }
+
+  // Snapshot all inputs synchronously. A new session, import or reset may run
+  // while question memory subsequently waits for Web Crypto or its write lock.
+  const sessionDatabase = db;
+  const databaseSnapshot = JSON.parse(JSON.stringify(sessionDatabase));
+  const questions = JSON.parse(JSON.stringify(examQueue));
+  const answers = JSON.parse(JSON.stringify(sessionAnswers));
+  for(const question of questions){
+    if(typeof question.subject === 'string' && question.subject.trim() ||
+      typeof question.blueprintSlot?.subject === 'string' && question.blueprintSlot.subject.trim()) continue;
+    const topic = databaseSnapshot.topics.find(item => item.id === question.topicId);
+    const subject = topic && databaseSnapshot.subjects.find(item => item.id === topic.subjectId);
+    if(typeof subject?.name === 'string' && subject.name.trim()) question.subject = subject.name;
+  }
+  const difficultyStats = {};
+  for(const answer of answers){
+    const level = answer.blueprint?.difficulty ?? 'sin_nivel';
+    if(!difficultyStats[level]) difficultyStats[level] = {correct:0, total:0};
+    difficultyStats[level].total++;
+    if(answer.ok) difficultyStats[level].correct++;
+  }
+  const pct = questions.length ? Math.round(examScore / questions.length * 100) : 0;
+  const attempt = {id:uid(), score:examScore, total:questions.length, pct,
+    at:new Date().toISOString(), difficultyStats, answers};
+  const attemptsReference = sessionDatabase.attempts;
+  const activityReference = sessionDatabase.activity;
+  const hadActiveExam = Object.prototype.hasOwnProperty.call(sessionDatabase,'activeExam');
+  const activeExamReference = sessionDatabase.activeExam;
+  let resolveCommit, rejectCommit;
+  const completion = new Promise((resolve,reject) => { resolveCommit = resolve; rejectCommit = reject; });
+  noaCompletedExamCommits.set(sessionAnswers, completion);
+
+  try{
+    sessionDatabase.attempts.push(attempt);
+    delete sessionDatabase.activeExam;
+    act(`Simulacro: ${attempt.score}/${attempt.total} (${pct}%)`);
+    let saveError;
+    try{ save(); }catch(error){ saveError = error; }
+    const persisted = JSON.parse(localStorage.getItem(KEY) || 'null');
+    const storedAttempt = persisted?.attempts?.find(item => item.id === attempt.id);
+    if(JSON.stringify(storedAttempt) !== JSON.stringify(attempt)) throw saveError || new Error('attempt_not_saved');
+  }catch(error){
+    // These are the only domain fields touched by the commit. Keep the live
+    // queue, score and answers available so a failed save can be retried.
+    attemptsReference.length = databaseSnapshot.attempts.length;
+    sessionDatabase.attempts = attemptsReference;
+    activityReference.length = 0;
+    for(const entry of databaseSnapshot.activity) activityReference.push(entry);
+    sessionDatabase.activity = activityReference;
+    if(hadActiveExam) sessionDatabase.activeExam = activeExamReference;
+    else delete sessionDatabase.activeExam;
+    noaCompletedExamCommits.delete(sessionAnswers);
+    reportExamCommitDiagnostic({operation:'attempt_commit', error:'attempt_not_saved', attemptId:attempt.id});
+    rejectCommit(error);
+    return completion;
+  }
+
+  try{
+    const memory = window.NOA_QUESTION_MEMORY_V25_2;
+    if(typeof memory?.recordSavedAttempt !== 'function'){
+      reportExamCommitDiagnostic({operation:'attempt_memory', error:'memory_unavailable', attemptId:attempt.id});
+      resolveCommit(attempt);
+    }else{
+      Promise.resolve(memory.recordSavedAttempt(attempt,questions)).then(
+        () => resolveCommit(attempt),
+        () => {
+          reportExamCommitDiagnostic({operation:'attempt_memory', error:'memory_record_failed', attemptId:attempt.id});
+          resolveCommit(attempt);
+        }
+      );
+    }
+  }catch{
+    reportExamCommitDiagnostic({operation:'attempt_memory', error:'memory_record_failed', attemptId:attempt.id});
+    resolveCommit(attempt);
+  }
+  return completion;
+}
+
 function renderExam(){
 
   const box = document.getElementById('examBox');
@@ -1428,39 +1526,6 @@ function renderExam(){
       }
 
     }
-
-
-    // =====================================
-    // GUARDAR INTENTO COMPLETO
-    // =====================================
-
-    db.attempts.push({
-
-      id: uid(),
-
-      score: examScore,
-
-      total: examQueue.length,
-
-      pct,
-
-      at: new Date().toISOString(),
-
-      difficultyStats,
-
-      answers: examAnswers.map(a => ({
-        ...a
-      }))
-
-    });
-
-
-    act(
-      `Simulacro: ${examScore}/${examQueue.length} (${pct}%)`
-    );
-
-
-    save();
 
 
     // =====================================
@@ -1967,7 +2032,23 @@ function answerExam(i){
   `;
 
 }  
-function nextExam(){examIndex++;renderExam()}
+async function nextExam(){
+  const sessionAnswers = examAnswers, sessionDatabase = db, previousIndex = Math.min(examIndex, Math.max(0,examQueue.length - 1));
+  examIndex++;
+  if(examQueue.length && examIndex >= examQueue.length){
+    try{ await commitCompletedExam(); }
+    catch{
+      if(db === sessionDatabase && examAnswers === sessionAnswers){
+        examIndex = previousIndex;
+        toast('No pude guardar el examen. Conserva esta pestaña e inténtalo otra vez.');
+        renderExam();
+      }
+      return;
+    }
+    if(db !== sessionDatabase || examAnswers !== sessionAnswers) return;
+  }
+  renderExam();
+}
 function renderExamStats(){
 
   const e =
@@ -2401,71 +2482,37 @@ function renderTimer(){let m=Math.floor(timerSeconds/60),s=timerSeconds%60;docum
 function toggleTimer(){if(timerHandle){clearInterval(timerHandle);timerHandle=null;document.getElementById('timerBtn').textContent='Continuar';return}timerStart=timerStart||new Date();document.getElementById('timerBtn').textContent='Pausar';timerHandle=setInterval(()=>{timerSeconds--;renderTimer();if(timerSeconds<=0){clearInterval(timerHandle);timerHandle=null;let mins=Math.round(timerDefault/60);db.sessions.push({id:uid(),minutes:mins,at:new Date().toISOString()});act(`Sesión de enfoque completada: ${mins} min`);save();toast('Sesión completada');timerSeconds=timerDefault;timerStart=null;renderTimer();document.getElementById('timerBtn').textContent='Iniciar'}},1000)}
 function resetTimer(){if(timerHandle)clearInterval(timerHandle);timerHandle=null;timerSeconds=timerDefault;timerStart=null;renderTimer();document.getElementById('timerBtn').textContent='Iniciar'}
 function renderSessions(){let e=document.getElementById('sessionList');e.innerHTML=db.sessions.slice().reverse().slice(0,20).map(s=>`<div class="item"><b>${s.minutes} min</b><div class="small">${fmtDate(s.at)}</div></div>`).join('')||'<p class="muted">Sin sesiones registradas.</p>'}
-function exportData(){
-
-  // Crear una copia independiente de la base
-  const safeBackup =
-    JSON.parse(
-      JSON.stringify(db)
-    );
-
-
-  // Nunca exportar credenciales
-  if(safeBackup.settings){
-
-    delete safeBackup
-      .settings
-      .bridgeToken;
-
-  }
-
-
-  const blob =
-    new Blob(
-      [
-        JSON.stringify(
-          safeBackup,
-          null,
-          2
-        )
-      ],
-      {
-        type:
-          'application/json'
-      }
-    );
-
-
-  const a =
-    document.createElement('a');
-
-
-  a.href =
-    URL.createObjectURL(blob);
-
-
-  a.download =
-    'NOA_backup_' +
-    new Date()
-      .toISOString()
-      .slice(0,10) +
-    '.json';
-
-
-  a.click();
-
-
-  setTimeout(
-    () =>
-      URL.revokeObjectURL(
-        a.href
-      ),
-    1000
-  );
-
+async function exportData(){
+  const memory = window.NOA_QUESTION_MEMORY_V25_2;
+  if(!memory?.createBackup){ toast('No se pudo crear el respaldo: módulo de memoria no disponible.'); return; }
+  const result = await memory.createBackup();
+  if(!result.ok){ toast('No se pudo crear un respaldo completo: ' + result.error); return result; }
+  const blob = new Blob([JSON.stringify(result.backup,null,2)], {type:'application/json'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'NOA_backup_' + new Date().toISOString().slice(0,10) + '.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href),1000);
+  return result;
 }
-document.getElementById('backupInput').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let x=JSON.parse(await f.text());if(!x.version)throw 0;db=Object.assign(blank(),x);save();toast('Copia restaurada')}catch(err){toast('Archivo de copia inválido')}};
-function resetAll(){if(confirm('Esto borrará TODOS los datos de NOA en este navegador.')){db=blank();save();toast('Datos borrados')}}
+document.getElementById('backupInput').onchange = async event => {
+  const file = event.target.files[0];
+  if(!file) return;
+  try{
+    const payload = JSON.parse(await file.text());
+    const memory = window.NOA_QUESTION_MEMORY_V25_2;
+    const result = memory?.restoreBackup ? await memory.restoreBackup(payload) : {ok:false,error:'memory_unavailable'};
+    toast(result.ok ? 'Copia restaurada' : 'No se pudo restaurar la copia: ' + result.error);
+  }catch{ toast('Archivo de copia inválido; no se restauraron datos.'); }
+  finally{ event.target.value = ''; }
+};
+async function resetAll(){
+  if(!confirm('Esto borrará TODOS los datos de NOA en este navegador.')) return {ok:false,error:'cancelled'};
+  const memory = window.NOA_QUESTION_MEMORY_V25_2;
+  const result = memory?.resetData ? await memory.resetData() : {ok:false,error:'memory_unavailable'};
+  toast(result.ok ? 'Datos borrados' : 'No se pudieron borrar todos los datos: ' + result.error);
+  return result;
+}
 document.getElementById('coachInput').addEventListener('keydown',e=>{if(e.key==='Enter')askCoach()});
 
 // ===========================

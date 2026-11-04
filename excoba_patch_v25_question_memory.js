@@ -1,4 +1,4 @@
-/* NOA v25.2, etapa 1: memoria local explícita; no registra ni selecciona exámenes. */
+/* NOA v25.2: memoria local y registro de intentos confirmados; no selecciona preguntas. */
 (() => {
   const VERSION = 1;
   const FORMATS = ['single_select','drag_classify','inline_select','drag_order'];
@@ -14,6 +14,30 @@
     return new Date(value).toISOString();
   };
   let pendingWrite = Promise.resolve();
+  let operationEpoch = 0;
+  const recordTasks = new Set(), diagnosticLog = [];
+
+  function reportDiagnostic(detail){
+    const entry = {operation:detail.operation, status:detail.status || 'error', at:new Date().toISOString()};
+    for(const key of ['error','attemptId','rollbackFailed']) if(detail[key] !== undefined) entry[key] = detail[key];
+    if(Array.isArray(detail.invalid)) entry.invalid = detail.invalid.filter(Number.isInteger);
+    diagnosticLog.push(entry);
+    if(diagnosticLog.length > 20) diagnosticLog.shift();
+    if(entry.status === 'error') console.warn('NOA memoria', clone(entry));
+    return clone(entry);
+  }
+
+  function trackRecord(task){
+    const tracked = Promise.resolve(task).catch(() => ({ok:false, error:'memory_exception'}));
+    recordTasks.add(tracked);
+    tracked.then(() => recordTasks.delete(tracked));
+    return tracked;
+  }
+
+  async function whenIdle(){
+    while(recordTasks.size) await Promise.all([...recordTasks]);
+    await pendingWrite;
+  }
 
   // Canonical content only. Ambiguous scientific casing is preserved rather
   // than merging potentially different compounds, variables or allele pairs.
@@ -247,6 +271,7 @@
   }
 
   function readStore(){
+    if(pendingBackupRollback) return {ok:false, error:'rollback_failed'};
     let raw;
     try{ raw = localStorage.getItem(storageKey); }
     catch{ return {ok:false, error:'storage_unavailable'}; }
@@ -270,7 +295,7 @@
     return !!(subject && hash && state.ok && state.data.entries.some(entry => entry.subject === subject && entry.fingerprint === hash));
   }
 
-  async function recordExam(questions, sessionId, options = {}){
+  async function recordExamInternal(questions, sessionId, options, epoch){
     if(!Array.isArray(questions) || !questions.length || !text(sessionId) || sessionId.length > 256 || !object(options)){
       return {ok:false, error:'invalid_exam'};
     }
@@ -291,6 +316,8 @@
     const unique = new Map(prepared.map(item => [keyFor(item.subject,item.fingerprint), item]));
     const keys = [...unique.keys()].sort();
     return serializedWrite(() => {
+      if(pendingBackupRollback && !repairBackupRollback()) return {ok:false, error:'rollback_failed'};
+      if(epoch !== operationEpoch) return {ok:false, error:'operation_superseded'};
       const state = readStore();
       if(!state.ok) return state;
       const store = state.data;
@@ -324,6 +351,39 @@
       return {ok:true, added, updated, unchanged:0, sessionId};
     });
   }
+
+  function recordExam(questions, sessionId, options = {}){
+    return trackRecord(recordExamInternal(questions, sessionId, options, operationEpoch));
+  }
+
+  async function registerSavedAttempt(attempt, questions){
+    const attemptId = attempt?.id;
+    let result, persistedConfirmed = false;
+    try{
+      const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
+      const persisted = stored?.attempts?.find(item => item.id === attemptId);
+      if(!text(attemptId) || !persisted || JSON.stringify(persisted) !== JSON.stringify(attempt)){
+        result = {ok:false, error:'attempt_not_saved'};
+      }else{
+        persistedConfirmed = true;
+        const ids = Array.isArray(questions) ? questions.map(question => String(question?.id ?? '')) : [];
+        const answered = Array.isArray(persisted.answers) ? persisted.answers.map(answer => String(answer?.questionId ?? '')) : [];
+        const complete = ids.length > 0 && ids.length === persisted.total && ids.length === answered.length &&
+          new Set(ids).size === ids.length && new Set(answered).size === ids.length && ids.every(id => id && answered.includes(id));
+        result = complete
+          ? await window.NOA_QUESTION_MEMORY_V25_2.recordExam(questions, 'history:' + attemptId, {seenAt:attempt.at})
+          : {ok:false, error:'incomplete_exam'};
+      }
+    }catch{ result = {ok:false, error:'memory_exception'}; }
+    if(!result || typeof result.ok !== 'boolean') result = {ok:false, error:'invalid_memory_result'};
+    reportDiagnostic({operation:'record_exam', status:result.ok ? 'ok' : 'error', attemptId, error:result.error, invalid:result.invalid});
+    if(!result.ok && typeof toast === 'function') toast(
+      `${persistedConfirmed ? 'El resultado está guardado.' : 'No se verificó el guardado del resultado.'} Memoria del intento ${attemptId || 'desconocido'}: ${result.error}.`
+    );
+    return result;
+  }
+
+  function recordSavedAttempt(attempt, questions){ return trackRecord(registerSavedAttempt(attempt, questions)); }
 
   function recent(subject, limit = 20){
     const state = readStore();
@@ -391,5 +451,271 @@
     return {ok:true, recovered, skipped, issues};
   }
 
-  window.NOA_QUESTION_MEMORY_V25_2 = {version:'25.2.1', storageKey, fingerprint, contains, recordExam, recent, stats, recoverHistory};
+  // Backup transactions share the memory lock; no call to save() is allowed here.
+  // A browser can deny rollback too. Keep originals in RAM for the next operation
+  // and report that failure instead of claiming restoration or erasure succeeded.
+  let pendingBackupRollback = null;
+  const backupCollections = ['subjects','topics','cards','notes','questions','attempts','sessions','activity','guides','courseSources'];
+  const privateBackupKeys = new Set([
+    'token','accesstoken','refreshtoken','bridgetoken','password','passwd','apikey','secret','clientsecret',
+    'authorization','credentials','credential','connection','connections','connectionsettings',
+    'sessionconnection','sessionconnections','bridgeurl','ollamaurl','baseurl','connectionurl',
+    'serverurl','serviceurl','endpoint','messages','conversation','conversations','chathistory',
+    'chatmessages','rawresponse','requestheaders','headers','proto','prototype','constructor'
+  ]);
+
+  function backupDiagnostic(operation, error, details = {}){
+    reportDiagnostic({operation,status:'error',error,...details});
+  }
+
+  function cleanBackupValue(value){
+    if(value === null || ['string','boolean'].includes(typeof value)) return value;
+    if(typeof value === 'number'){
+      if(!Number.isFinite(value)) throw new Error('invalid_database');
+      return value;
+    }
+    if(Array.isArray(value)) return Array.from(value, cleanBackupValue);
+    if(!object(value)) throw new Error('invalid_database');
+    const result = {};
+    for(const [key,item] of Object.entries(value)){
+      const normalized = key.replace(/[^a-z0-9_]/gi,'').replace(/_/g,'').toLowerCase();
+      if(privateBackupKeys.has(normalized) || /(?:token|password|passwd|apikey|secret|credential|connection|connections|connectionsettings|connectionurl|endpoint|endpointurl)$/.test(normalized)) continue;
+      result[key] = cleanBackupValue(item);
+    }
+    return result;
+  }
+
+  function sanitizedAcademicDb(raw){
+    if(!object(raw) || raw.version !== 6) throw new Error('invalid_database');
+    if(['subjects','topics','cards','notes','questions','attempts','sessions'].some(key => !own(raw,key) || !Array.isArray(raw[key]))) throw new Error('invalid_database');
+    // Match the existing JSON backup semantics for optional undefined fields.
+    raw = clone(raw);
+    const result = {version:6};
+    for(const key of backupCollections){
+      if(own(raw,key) && (!Array.isArray(raw[key]) || raw[key].some(item => !object(item)))) throw new Error('invalid_database');
+      result[key] = cleanBackupValue(raw[key] || []);
+    }
+    if(own(raw,'settings') && !object(raw.settings)) throw new Error('invalid_database');
+    result.settings = {};
+    if(own(raw.settings || {},'noaTrainingProfile')){
+      if(!['official','extended','course','extreme'].includes(raw.settings.noaTrainingProfile)) throw new Error('invalid_database');
+      result.settings.noaTrainingProfile = raw.settings.noaTrainingProfile;
+    }
+    for(const item of result.subjects){
+      if(!text(item.id) || !text(item.name)) throw new Error('invalid_database');
+    }
+    for(const item of result.topics){
+      if(!text(item.id) || !text(item.name) || typeof item.subjectId !== 'string') throw new Error('invalid_database');
+      for(const key of ['attempts','correct']) if(own(item,key) && (!Number.isFinite(item[key]) || item[key] < 0)) throw new Error('invalid_database');
+    }
+    for(const item of result.attempts){
+      for(const key of ['score','total','pct']) if(own(item,key) && (!Number.isFinite(item[key]) || item[key] < 0)) throw new Error('invalid_database');
+      if(own(item,'answers') && (!Array.isArray(item.answers) || item.answers.some(answer => !object(answer)))) throw new Error('invalid_database');
+      if(own(item,'score') && own(item,'total') && item.score > item.total || own(item,'pct') && item.pct > 100) throw new Error('invalid_database');
+    }
+    for(const key of backupCollections){
+      for(const item of result[key]) if(own(item,'id') && !text(item.id)) throw new Error('invalid_database');
+    }
+    for(const [collection, fields] of [['cards',['front','back']], ['notes',['title','text']], ['guides',['title','markdown']], ['activity',['text']]]){
+      for(const item of result[collection]){
+        if(fields.some(field => typeof item[field] !== 'string')) throw new Error('invalid_database');
+      }
+    }
+    for(const question of result.questions) if(!canonicalQuestion(question)) throw new Error('invalid_database');
+    for(const session of result.sessions){
+      if(!Number.isFinite(session.minutes) || session.minutes < 0) throw new Error('invalid_database');
+    }
+    for(const source of result.courseSources){
+      if(!text(source.id) || !text(source.subject) || !text(source.title) || typeof source.content !== 'string') throw new Error('invalid_database');
+      if(source.analysis != null){
+        if(!object(source.analysis)) throw new Error('invalid_database');
+        for(const field of ['concepts','syllabus_links','evaluable_objectives']){
+          if(own(source.analysis,field) && (!Array.isArray(source.analysis[field]) || source.analysis[field].some(item => !object(item)))) throw new Error('invalid_database');
+        }
+        for(const [field, label] of [['concepts','name'],['syllabus_links','code']]){
+          if((source.analysis[field] || []).some(item => own(item,label) && typeof item[label] !== 'string')) throw new Error('invalid_database');
+        }
+      }
+    }
+    // Voice commands can contain free-form Coach queries. They are transient
+    // activity, not academic history that belongs in a backup.
+    result.activity = result.activity.filter(item => !/^Comando:/i.test(item.text));
+    if(own(raw,'masterSyllabus')){
+      if(raw.masterSyllabus === null) result.masterSyllabus = null;
+      else{
+        if(!object(raw.masterSyllabus) || !Array.isArray(raw.masterSyllabus.items) || raw.masterSyllabus.items.some(item => !object(item))) throw new Error('invalid_database');
+        result.masterSyllabus = cleanBackupValue(raw.masterSyllabus);
+      }
+    }
+    if(own(raw,'activeExam')){
+      if(raw.activeExam === null) result.activeExam = null;
+      else{
+        const active = cleanBackupValue(raw.activeExam);
+        if(!window.NOA_EXAM_RECOVERY?.validate?.(active)) throw new Error('invalid_active_exam');
+        result.activeExam = active;
+      }
+    }
+    // Unknown top-level fields are deliberately excluded (including chat data).
+    return result;
+  }
+
+  function backupGenerationActive(){
+    return !!(window.NOA_GENERATOR_UI?.state?.()?.busy || window.NOA_EXAM_UI_V25?.state?.()?.busy);
+  }
+
+  function restoreRawBackupValue(key, raw){
+    if(raw === null) localStorage.removeItem(key);
+    else localStorage.setItem(key,raw);
+  }
+
+  function repairBackupRollback(){
+    if(!pendingBackupRollback) return true;
+    const previous = pendingBackupRollback;
+    let complete = true;
+    for(const [key,raw] of [[storageKey,previous.memory],[KEY,previous.main]]){
+      try{ restoreRawBackupValue(key,raw); }
+      catch{ complete = false; }
+    }
+    try{ complete = complete && localStorage.getItem(KEY) === previous.main && localStorage.getItem(storageKey) === previous.memory; }
+    catch{ complete = false; }
+    if(complete){
+      pendingBackupRollback = null;
+      operationEpoch = previous.epoch;
+    }
+    return complete;
+  }
+
+  function backupStorageTransaction(nextMain, nextMemory, replaceMemory){
+    if(!repairBackupRollback()) return {ok:false,error:'rollback_failed',rollbackFailed:true};
+    let before;
+    try{
+      before = {main:localStorage.getItem(KEY),memory:localStorage.getItem(storageKey),epoch:operationEpoch};
+    }catch{ return {ok:false,error:'storage_unavailable'}; }
+    operationEpoch++;
+    try{
+      if(replaceMemory) restoreRawBackupValue(storageKey,nextMemory);
+      restoreRawBackupValue(KEY,nextMain);
+      if(localStorage.getItem(KEY) !== nextMain || replaceMemory && localStorage.getItem(storageKey) !== nextMemory){
+        throw new Error('storage_verification_failed');
+      }
+      return {ok:true};
+    }catch{
+      pendingBackupRollback = before;
+      const recovered = repairBackupRollback();
+      return recovered ? {ok:false,error:'storage_unavailable'} : {ok:false,error:'rollback_failed',rollbackFailed:true};
+    }
+  }
+
+  function applyBackupRuntime(nextDb, restoreActive){
+    db = nextDb;
+    window.NOA_MIXED_EXAM?.stop?.();
+    window.NOA_EXAM_SHELL?.deactivate?.();
+    examQueue = []; examIndex = 0; examScore = 0; examAnswers = [];
+    reviewQueue = []; reviewIndex = 0;
+    window.NOA_EXAM_NAVIGATION?.drafts?.clear?.();
+    if(typeof resetTimer === 'function') resetTimer();
+    if(typeof renderAll === 'function') renderAll();
+    if(typeof loadAISettingsUI === 'function') loadAISettingsUI();
+    if(typeof renderAISettingsVisibility === 'function') renderAISettingsVisibility();
+    if(restoreActive && db.activeExam){
+      if(!window.NOA_EXAM_RECOVERY?.recover?.()) throw new Error('active_exam_recovery_failed');
+    }else if(typeof renderExam === 'function') renderExam();
+  }
+
+  async function createBackup(){
+    try{
+      await whenIdle();
+      const result = await serializedWrite(() => {
+        if(!repairBackupRollback()) return {ok:false,error:'rollback_failed',rollbackFailed:true};
+        const state = readStore();
+        if(!state.ok) return state;
+        let academic;
+        try{ academic = sanitizedAcademicDb(db); }
+        catch(error){ return {ok:false,error:['invalid_database','invalid_active_exam'].includes(error?.message) ? error.message : 'invalid_database'}; }
+        const memory = clone(state.data);
+        if(!validStore(memory)) return {ok:false,error:'invalid_memory'};
+        return {ok:true,backup:{format:'noa-backup',version:1,db:academic,questionMemory:memory}};
+      });
+      if(!result.ok) backupDiagnostic('backup_export',result.error,{rollbackFailed:!!result.rollbackFailed});
+      return result;
+    }catch(error){
+      const reason = ['invalid_database','invalid_active_exam'].includes(error?.message) ? error.message : 'backup_export_failed';
+      backupDiagnostic('backup_export',reason);
+      return {ok:false,error:reason};
+    }
+  }
+
+  async function restoreBackup(payload){
+    let academic, hasMemory = false, memoryRaw;
+    try{
+      const source = clone(payload);
+      if(object(source) && source.format === 'noa-backup'){
+        if(source.version !== 1 || !own(source,'db') || !own(source,'questionMemory') ||
+          Object.keys(source).some(key => !['format','version','db','questionMemory'].includes(key)) || !validStore(source.questionMemory)){
+          throw new Error('invalid_backup');
+        }
+        academic = sanitizedAcademicDb(source.db);
+        memoryRaw = JSON.stringify(clone(source.questionMemory));
+        hasMemory = true;
+      }else{
+        if(!object(source) || own(source,'format')) throw new Error('invalid_backup');
+        academic = sanitizedAcademicDb(source);
+      }
+    }catch(error){
+      const reason = ['invalid_database','invalid_active_exam'].includes(error?.message) ? error.message : 'invalid_backup';
+      backupDiagnostic('backup_restore',reason);
+      return {ok:false,error:reason};
+    }
+    if(backupGenerationActive()){
+      backupDiagnostic('backup_restore','generation_in_progress');
+      return {ok:false,error:'generation_in_progress'};
+    }
+    const nextDb = Object.assign(blank(),academic);
+    nextDb.settings = Object.assign(blank().settings,academic.settings);
+    const result = await serializedWrite(() => {
+      if(backupGenerationActive()) return {ok:false,error:'generation_in_progress'};
+      const committed = backupStorageTransaction(JSON.stringify(nextDb),memoryRaw,hasMemory);
+      if(committed.ok) db = nextDb;
+      return committed;
+    });
+    if(!result.ok){
+      backupDiagnostic('backup_restore',result.error,{rollbackFailed:!!result.rollbackFailed});
+      return result;
+    }
+    try{ applyBackupRuntime(nextDb,true); }
+    catch(error){
+      backupDiagnostic('backup_restore','runtime_refresh_failed',{committed:true,detail:String(error?.message || error)});
+      return {ok:false,error:'runtime_refresh_failed',committed:true};
+    }
+    reportDiagnostic({operation:'backup_restore',status:'ok',memoryIncluded:hasMemory});
+    return {ok:true,memoryIncluded:hasMemory};
+  }
+
+  async function resetData(){
+    if(backupGenerationActive()){
+      backupDiagnostic('reset','generation_in_progress');
+      return {ok:false,error:'generation_in_progress'};
+    }
+    const nextDb = blank();
+    const result = await serializedWrite(() => {
+      if(backupGenerationActive()) return {ok:false,error:'generation_in_progress'};
+      const committed = backupStorageTransaction(null,null,true);
+      if(committed.ok) db = nextDb;
+      return committed;
+    });
+    if(!result.ok){
+      backupDiagnostic('reset',result.error,{rollbackFailed:!!result.rollbackFailed});
+      return result;
+    }
+    try{ applyBackupRuntime(nextDb,false); }
+    catch(error){
+      backupDiagnostic('reset','runtime_refresh_failed',{committed:true,detail:String(error?.message || error)});
+      return {ok:false,error:'runtime_refresh_failed',committed:true};
+    }
+    reportDiagnostic({operation:'reset',status:'ok'});
+    return {ok:true};
+  }
+
+  window.NOA_QUESTION_MEMORY_V25_2 = {version:'25.2.2', storageKey, fingerprint, contains, recordExam, recent, stats, recoverHistory,
+    recordSavedAttempt, reportDiagnostic, diagnostics:() => clone(diagnosticLog), whenIdle, createBackup, restoreBackup, resetData};
 })();
