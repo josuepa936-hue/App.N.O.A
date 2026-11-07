@@ -20,6 +20,14 @@
 
   const VERSION = '16.0';
 
+  const canInteract = () => window.NOA_EXAM_SHELL?.canInteract?.() !== false;
+
+  // Share the pending submitted-answer queue with the mixed exam navigator.
+  function queueAnswerRecord(callback){
+    return window.NOA_MIXED_EXAM.queueAnswerRecord(callback);
+  }
+
+
   const recorded =
     new Set();
 
@@ -415,6 +423,8 @@
 
   function recordInlineAnswer(){
 
+    if(!canInteract()) return;
+
     const mixed =
       mixedState();
 
@@ -551,6 +561,8 @@
 
 
     examAnswers.push({
+
+      ...(window.NOA_EXAM_SHELL?.state?.().timing ? {presented:true} : {}),
 
       questionId:
         q.id || '',
@@ -784,10 +796,7 @@
         // Esperamos un ciclo para
         // leer el nuevo state.
 
-        setTimeout(
-          recordInlineAnswer,
-          0
-        );
+        queueAnswerRecord(recordInlineAnswer);
 
 
         return;
@@ -805,6 +814,8 @@
             '#noaInlineMixedContinue'
           )
       ){
+
+        if(!canInteract()) return;
 
         try{
 

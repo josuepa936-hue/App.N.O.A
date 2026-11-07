@@ -29,6 +29,160 @@
 
   let observedAnswers = null;
 
+  // Timed sessions are opt-in; recovery always reuses the stored deadline.
+  let timing = null;
+  let completionPromise = null;
+  let completionError = null;
+  const copy = value => JSON.parse(JSON.stringify(value));
+
+  function configuration(){
+    if(!document.getElementById('noaExamTimed')?.checked) return null;
+    const minutes = Number(document.getElementById('noaExamDurationMinutes')?.value);
+    if(!Number.isInteger(minutes) || minutes < 1 || minutes > 1440){
+      throw new Error('Elige una duración de práctica entre 1 y 1440 minutos.');
+    }
+    return {durationMs:minutes * 60000};
+  }
+
+  function validTiming(value, questions = examQueue){
+    if(!value || value.version !== 26 || typeof value.attemptId !== 'string' ||
+      !value.attemptId.trim() || value.attemptId.length > 256 ||
+      !Number.isSafeInteger(value.startedAt) || value.startedAt <= 0 ||
+      !Number.isSafeInteger(value.durationMs) || value.durationMs < 60000 || value.durationMs > 86400000 ||
+      !Number.isSafeInteger(value.deadlineAt) || value.deadlineAt !== value.startedAt + value.durationMs ||
+      !['open','closing','closed'].includes(value.status) ||
+      !Array.isArray(value.presentedQuestionIds) ||
+      value.presentedQuestionIds.some(id => typeof id !== 'string' || !id) ||
+      new Set(value.presentedQuestionIds).size !== value.presentedQuestionIds.length) return false;
+    const ids = new Set((questions || []).map(question => String(question.id)));
+    if(value.presentedQuestionIds.some(id => !ids.has(id))) return false;
+    if(value.status === 'open') return value.finishReason === null && value.closedAt === null;
+    return ['manual','timeout'].includes(value.finishReason) && Number.isSafeInteger(value.closedAt) &&
+      value.closedAt >= value.startedAt && (value.finishReason === 'timeout'
+        ? value.closedAt === value.deadlineAt : value.closedAt < value.deadlineAt);
+  }
+
+  function beginTiming(){
+    const selected = configuration();
+    if(!selected) return;
+    const now = Date.now();
+    startedAt = now;
+    timing = {version:26,attemptId:uid(),startedAt:now,durationMs:selected.durationMs,
+      deadlineAt:now + selected.durationMs,status:'open',finishReason:null,closedAt:null,presentedQuestionIds:[]};
+  }
+
+  function notePresented(){
+    if(!timing || timing.status !== 'open' || Date.now() >= timing.deadlineAt) return;
+    const id = examQueue[examIndex]?.id;
+    if(id != null && !timing.presentedQuestionIds.includes(String(id))){
+      timing.presentedQuestionIds.push(String(id));
+    }
+  }
+
+  function prepareCompletion(reason = 'manual'){
+    if(!timing || observedAnswers !== examAnswers) return null;
+    if(timing.status !== 'open') return copy(timing);
+    const timeout = Date.now() >= timing.deadlineAt;
+    if(reason === 'timeout' && !timeout) return null;
+    timing.status = 'closing';
+    timing.finishReason = timeout ? 'timeout' : 'manual';
+    timing.closedAt = timeout ? timing.deadlineAt : Date.now();
+    for(const answer of examAnswers){
+      if(answer.omitted !== true && !timing.presentedQuestionIds.includes(String(answer.questionId))){
+        timing.presentedQuestionIds.push(String(answer.questionId));
+      }
+    }
+    stopClock();
+    window.NOA_ANSWER_REVISION?.closeForClosure?.();
+    window.NOA_DRAG_RENDERER?.close?.();
+    window.NOA_INLINE_RENDERER?.close?.();
+    window.NOA_DRAG_ORDER_RENDERER?.close?.();
+    return copy(timing);
+  }
+
+  function markCommitted(answers, attemptId){
+    if(answers !== examAnswers || observedAnswers !== answers || timing?.attemptId !== attemptId) return;
+    timing.status = 'closed';
+    completionError = null;
+    stopClock();
+  }
+
+  function completionFailed(answers){
+    if(answers !== examAnswers || observedAnswers !== answers || !timing) return;
+    // A possibly durable close remains locked until it is verified or retried.
+    completionError = 'No pude guardar el examen. Mantén esta pestaña abierta y vuelve a intentar el cierre.';
+    stopClock();
+  }
+
+  function closureMessage(){
+    const box = document.getElementById('examBox');
+    if(!box) return;
+    const heading = timing?.finishReason === 'timeout' ? 'Tiempo finalizado' : 'Examen finalizado';
+    box.innerHTML = '<h2>' + heading + '</h2><p role="status" id="noaTimedClosureStatus"></p>' +
+      (completionError ? '<button class="btn primary" id="noaTimedRetryClosure" type="button">Reintentar guardado</button>' : '');
+    document.getElementById('noaTimedClosureStatus').textContent = completionError || 'Guardando el resultado del simulacro…';
+    document.getElementById('noaTimedRetryClosure')?.addEventListener('click', () => { expire(); });
+  }
+
+  function expire(){
+    const sessionAnswers = examAnswers, sessionDatabase = db, sessionQueue = examQueue, sessionTiming = timing;
+    if(!sessionTiming || observedAnswers !== sessionAnswers) return Promise.resolve(null);
+    if(completionPromise) return completionPromise;
+    if(sessionTiming.status === 'closed'){
+      return Promise.resolve(db.attempts.find(attempt => attempt.id === sessionTiming.attemptId) || null);
+    }
+    if(sessionTiming.status === 'open' && Date.now() < sessionTiming.deadlineAt) return Promise.resolve(null);
+    prepareCompletion(sessionTiming.finishReason || 'timeout');
+    completionError = null;
+    const stillCurrent = () => sessionAnswers === examAnswers && sessionDatabase === db &&
+      sessionQueue === examQueue && timing === sessionTiming;
+    // Assign the mutex first, then invoke commit synchronously. A new exam can
+    // start in this JS turn without replacing the expired exam's input snapshot.
+    let resolvePending;
+    const pending = new Promise(resolve => { resolvePending = resolve; });
+    completionPromise = pending;
+    (async () => {
+      let result = null;
+      try{
+        const attempt = await commitCompletedExam({reason:sessionTiming.finishReason});
+        result = attempt;
+        if(!stillCurrent()) return;
+        if(!attempt) throw new Error('El cierre todavía no pudo guardarse.');
+        timing.status = 'closed';
+        completionError = null;
+        deactivate();
+        renderExam();
+      }catch{
+        if(stillCurrent()){
+          completionError = 'No pude guardar el examen. Mantén esta pestaña abierta y vuelve a intentar el cierre.';
+          window.NOA_EXAM_RECOVERY?.save?.();
+          deactivate();
+          closureMessage();
+        }
+      }finally{
+        if(completionPromise === pending) completionPromise = null;
+        resolvePending(result);
+      }
+    })();
+    return pending;
+  }
+
+  function canInteract(){
+    if(!timing || observedAnswers !== examAnswers) return true;
+    if(timing.status !== 'open') return false;
+    if(Date.now() >= timing.deadlineAt){
+      expire();
+      return false;
+    }
+    notePresented();
+    return true;
+  }
+
+  function remainingSeconds(){
+    return timing ? Math.max(0, Math.ceil((timing.deadlineAt - Date.now()) / 1000)) : null;
+  }
+
+
   function deferForSession(callback, delay){
     const answers = examAnswers;
     setTimeout(() => {
@@ -763,33 +917,20 @@
     }
 
 
-    return (
-      Date.now() -
-      startedAt
-    ) / 1000;
+    return ((timing?.closedAt ?? Date.now()) - startedAt) / 1000;
 
   }
 
 
   function updateClock(){
-
-    const node =
-      document.getElementById(
-        'noaShellClock'
-      );
-
-
-    if(!node){
+    if(timing?.status === 'open' && Date.now() >= timing.deadlineAt){
+      expire();
       return;
     }
-
-
-    node.textContent =
-      'Tiempo · ' +
-      formatTime(
-        elapsedSeconds()
-      );
-
+    const node = document.getElementById('noaShellClock');
+    if(node) node.textContent = timing
+      ? 'Tiempo restante · ' + formatTime(remainingSeconds())
+      : 'Tiempo · ' + formatTime(elapsedSeconds());
   }
 
 
@@ -1085,8 +1226,15 @@
       state();
 
 
+    if(timing && timing.status !== 'open'){
+      if(timing.status === 'closing' && !completionPromise && !completionError) expire();
+      deactivate();
+      if(timing.status === 'closing' && completionError) closureMessage();
+      return;
+    }
+    if(timing && Date.now() >= timing.deadlineAt){ expire(); return; }
     if(
-      !exam.mixedMode
+      !exam.mixedMode && !timing
     ){
 
       deactivate();
@@ -1226,10 +1374,8 @@
           class="noa-shell-time"
           id="noaShellClock"
         >
-          Tiempo ·
-          ${formatTime(
-            elapsedSeconds()
-          )}
+          ${timing ? 'Tiempo restante · ' : 'Tiempo · '}
+          ${formatTime(timing ? remainingSeconds() : elapsedSeconds())}
         </div>
 
 
@@ -1309,8 +1455,7 @@
     stopClock();
 
 
-    startedAt =
-      null;
+    if(!timing) startedAt = null;
 
   }
 
@@ -1332,8 +1477,19 @@
         observedAnswers !== examAnswers;
       if(newSession){
         observedAnswers = examAnswers;
+        timing = null;
+        completionPromise = null;
+        completionError = null;
         deactivate();
+        if(examQueue.length && examIndex >= 0 && examIndex < examQueue.length) beginTiming();
       }
+      if(timing && timing.status !== 'open' && examIndex < examQueue.length){
+        if(!completionPromise && !completionError && timing.status === 'closing') expire();
+        if(completionError) closureMessage();
+        return;
+      }
+      if(timing && !canInteract() && examIndex < examQueue.length) return;
+      notePresented();
 
       const result =
         previousRenderExam
@@ -1391,17 +1547,38 @@
   // API
   // =====================================
 
-  function restoreSessionClock(snapshot){
-    if(!state().mixedMode || !snapshot) return;
-    const now = Date.now();
-    const elapsed = Number.isFinite(snapshot.elapsed)
-      ? Math.max(0, snapshot.elapsed) : 0;
-    startedAt = Number.isFinite(snapshot.startedAt) && snapshot.startedAt > 0
-      ? Math.min(snapshot.startedAt, now - elapsed * 1000)
-      : now - elapsed * 1000;
-    mapOpen = snapshot.mapOpen === true;
-    sync();
+  function restoreSessionClock(snapshot, options = {}){
+    observedAnswers = examAnswers;
+    stopClock();
+    startedAt = null;
+    mapOpen = false;
+    timing = null;
+    completionPromise = null;
+    completionError = null;
+    if(snapshot?.timing){
+      if(!validTiming(snapshot.timing,examQueue)) throw new Error('El límite de tiempo guardado no es válido.');
+      timing = copy(snapshot.timing);
+      startedAt = timing.startedAt;
+    }else{
+      if(!state().mixedMode || !snapshot) return;
+      const now = Date.now();
+      const elapsed = Number.isFinite(snapshot.elapsed) ? Math.max(0,snapshot.elapsed) : 0;
+      startedAt = Number.isFinite(snapshot.startedAt) && snapshot.startedAt > 0
+        ? Math.min(snapshot.startedAt,now - elapsed * 1000) : now - elapsed * 1000;
+    }
+    mapOpen = snapshot?.mapOpen === true;
+    if(options.sync !== false) sync();
   }
+
+  // On hide, navigation persists the original deadline. Closing from the old
+  // document during reload would remove the checkpoint before recovery can show
+  // the result. Recheck immediately when the document becomes visible instead.
+  document.addEventListener('visibilitychange', () => {
+    if(timing && document.visibilityState === 'visible') sync();
+  });
+  window.addEventListener('focus', () => { if(timing) sync(); });
+  window.addEventListener('pageshow', () => { if(timing) sync(); });
+
 
   window.NOA_EXAM_SHELL = {
 
@@ -1409,6 +1586,13 @@
       VERSION,
 
     sync,
+    configuration,
+    validTiming,
+    canInteract,
+    expire,
+    prepareCompletion,
+    markCommitted,
+    completionFailed,
 
     deactivate,
 
@@ -1423,7 +1607,8 @@
         elapsed:
           elapsedSeconds(),
 
-        mapOpen
+        mapOpen,
+        ...(timing && observedAnswers === examAnswers ? {timing:copy(timing),error:completionError} : {})
 
       })
 

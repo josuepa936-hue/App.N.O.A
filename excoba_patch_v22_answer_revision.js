@@ -22,7 +22,11 @@
 
   const VERSION = '22.0';
 
+  const canInteract = () => window.NOA_EXAM_SHELL?.canInteract?.() !== false;
+
+
   let revision = null;
+  let revisionAnswers = null;
 
   let revisionBannerObserver = null;
 
@@ -31,7 +35,7 @@
   function deferForSession(callback, delay){
     const answers = examAnswers;
     setTimeout(() => {
-      if(answers === examAnswers) callback();
+      if(answers === examAnswers && canInteract()) callback();
     }, delay);
   }
 
@@ -463,6 +467,8 @@
     patch
   ){
 
+    if(!canInteract() || revisionAnswers !== examAnswers) return;
+
     if(!revision){
       return;
     }
@@ -553,6 +559,8 @@
 
         scoreFraction:
           nextFraction,
+
+        ...(window.NOA_EXAM_SHELL?.state?.().timing ? {presented:true} : {}),
 
         revised:
           true,
@@ -1107,6 +1115,8 @@
 
   function beginRevision(){
 
+    if(!canInteract()) return;
+
     const mixed =
       mixedState();
 
@@ -1135,6 +1145,7 @@
     }
 
 
+    revisionAnswers = examAnswers;
     revision = {
 
       index:
@@ -1215,7 +1226,17 @@
   // CANCELAR
   // =====================================
 
+  function closeForClosure(){
+    revision = null;
+    revisionAnswers = null;
+    revisionBannerObserver?.disconnect();
+    revisionBannerObserver = null;
+    closeRenderers();
+  }
+
   function cancelRevision(){
+
+    if(!canInteract()) return;
 
     if(!revision){
       return;
@@ -1239,6 +1260,8 @@
   // =====================================
 
   function injectEditButton(){
+
+    if(!canInteract()) return;
 
     const mixed =
       mixedState();
@@ -1351,6 +1374,8 @@
 
   function commitDrag(){
 
+    if(!canInteract() || revisionAnswers !== examAnswers) return;
+
     const q =
       currentQuestion();
 
@@ -1414,6 +1439,8 @@
   // =====================================
 
   function commitInline(){
+
+    if(!canInteract() || revisionAnswers !== examAnswers) return;
 
     const q =
       currentQuestion();
@@ -1514,6 +1541,8 @@
 
   function commitOrder(){
 
+    if(!canInteract() || revisionAnswers !== examAnswers) return;
+
     const q =
       currentQuestion();
 
@@ -1582,6 +1611,8 @@
   function commitSingle(
     optionIndex
   ){
+
+    if(!canInteract() || revisionAnswers !== examAnswers) return;
 
     const q =
       currentQuestion();
@@ -2055,6 +2086,8 @@
 
   function restoreRevision(snapshot){
 
+    if(!canInteract()) return false;
+
     const question = currentQuestion();
     const answer = answerFor(question);
     const type = question?.interactionType || 'single_select';
@@ -2074,6 +2107,7 @@
     }
 
     const editor = snapshot.editor || {};
+    revisionAnswers = examAnswers;
     revision = {
       index:examIndex,
       questionId:question.id,
@@ -2130,6 +2164,8 @@
 
     cancel:
       cancelRevision,
+
+    closeForClosure,
 
     capture:
       captureRevision,
