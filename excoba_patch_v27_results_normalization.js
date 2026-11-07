@@ -77,12 +77,12 @@
       const sections = new Set((definition.prefixes || []).map(prefix => ({1:'primary',2:'secondary',3:'medicine'})[String(prefix).split('.')[0]]).filter(Boolean));
       if(sections.size === 1) section = field([...sections][0],'known',['catalog.subjects.prefixes']);
     }
-    const statedSection = read(answer,'groupId','answer.groupId',value => own(sectionLabels,value));
+    const statedSection = read(answer,'groupId','answer.groupId',value => typeof value === 'string' && own(sectionLabels,value));
     if(statedSection.state === 'invalid' || statedSection.state === 'known' && section.state === 'known' && statedSection.value !== section.value){
       issues.push('section_conflict');
       section = field(null,'conflict',statedSection.sources.concat(section.sources));
     }
-    if(section.state === 'absent' && statedSection.state === 'known') section = statedSection;
+    if(section.state === 'absent') section = statedSection;
     // A section alone is not sufficient evidence for a subject or subtopic.
     const subtopic = !candidates.size && !invalidCodes ? field(null,codePresence,codeSources)
       : invalidCodes ? field(null,'invalid',codeSources)
@@ -136,10 +136,57 @@
         : classification.subject.state === 'known' || classification.section.state === 'known' ? 'partial' : 'unclassified',
         issues:issues.concat(classification.issues),deduplication:identity ? 'identified' : 'unverifiable'}};
   }
-  function signature(value){
-    if(Array.isArray(value)) return '[' + value.map(signature).join(',') + ']';
-    if(object(value)) return '{' + Object.keys(value).sort().map(key => JSON.stringify(key)+':'+signature(value[key])).join(',') + '}';
-    return JSON.stringify(value);
+  // Merge evidence per field; descriptive differences are not score conflicts.
+  function mergeField(fields){
+    const sources = [...new Set(fields.flatMap(item => item.sources))];
+    if(fields.some(item => item.state === 'conflict')) return field(null,'conflict',sources);
+    return {...combine(fields),sources};
+  }
+  function mergeRecords(copies){
+    const next = copies[0];
+    if(copies.length === 1) return next;
+    const merged = key => mergeField(copies.map((item,index) => ({...item[key],
+      sources:item[key].sources.map(source => 'answers['+item.sourceIndexes[0]+'].'+source)})));
+    const statusEvidence = copies.map(item => item.status);
+    const evidenceKinds = copies.map(item => item.evidenceKind);
+    const issues = [...new Set(copies.flatMap(item => item.quality.issues))];
+    for(const key of ['questionId','planSlotId','topicId','format','credit','omitted','at','finishReason','omissionReason']) next[key] = merged(key);
+    // Omission vs a known answered outcome is a genuine academic conflict.
+    const omissionConflict = statusEvidence.includes('omitted') && statusEvidence.some(status => ['correct','partial','incorrect'].includes(status));
+    const identityConflict = [next.questionId,next.planSlotId].some(item => item.state === 'conflict');
+    if(omissionConflict) next.omitted = field(null,'conflict',next.omitted.sources);
+    if(identityConflict || omissionConflict) next.credit = field(null,'conflict',next.credit.sources);
+    const presented = mergeField(copies.map(item => ({...item.exposure.presented,
+      sources:item.exposure.presented.sources.map(source => 'answers['+item.sourceIndexes[0]+'].'+source)})));
+    const classification = {};
+    for(const key of ['subject','section','subtopic']) classification[key] = mergeField(copies.map(item => ({...item.classification[key],
+      sources:item.classification[key].sources.map(source => 'answers['+item.sourceIndexes[0]+'].'+source)})));
+    if(classification.subject.state === 'conflict' || classification.subject.state === 'invalid'){
+      classification.subtopic = field(null,'conflict',classification.subtopic.sources);
+    }
+    classification.subtopicCandidates = [...new Set(copies.flatMap(item => item.classification.subtopicCandidates))].sort();
+    if(classification.subtopicCandidates.length > 1) classification.subtopic = field(null,'conflict',classification.subtopic.sources);
+    const label = key => classification[key].state === 'known'
+      ? copies.find(item => item.classification[key].value === classification[key].value)?.classification.labels[key] || classification[key].value : 'Sin clasificar';
+    classification.labels = {section:label('section'),subject:label('subject'),subtopic:label('subtopic')};
+    classification.issues = [...new Set(copies.flatMap(item => item.classification.issues))];
+    next.classification = classification;
+    next.sourceIndexes = copies.flatMap(item => item.sourceIndexes);
+    next.evidenceKind = evidenceKinds.includes('technical_test') ? 'technical_test' : evidenceKinds.every(kind => kind === 'student') ? 'student' : 'unknown';
+    next.status = next.credit.state !== 'known' || ['conflict','invalid','unknown'].includes(next.omitted.state) ? 'unknown'
+      : next.omitted.value === true ? 'omitted' : next.credit.value === 1 ? 'correct' : next.credit.value === 0 ? 'incorrect' : 'partial';
+    next.domainEligible = next.evidenceKind === 'student' && ['correct','partial','incorrect'].includes(next.status);
+    next.knowledgeError = next.evidenceKind === 'student' && next.status !== 'unknown' ? next.status === 'incorrect' : null;
+    next.exposure = {countsAsExposure:next.status === 'unknown' ? null : true,presented};
+    next.allocations = next.credit.state === 'known' && classification.subtopic.state === 'known' ? [{subtopicId:classification.subtopic.value,share:1}] : [];
+    if(identityConflict) next.key = null;
+    if(next.credit.state === 'conflict') issues.push('conflicting_duplicate');
+    if(presented.state === 'conflict') issues.push('conflicting_presentation');
+    if(['subject','section','subtopic'].some(key => classification[key].state === 'conflict')) issues.push('conflicting_classification');
+    next.quality = {classification:['subject','section','subtopic'].every(key => classification[key].state === 'known') ? 'verified'
+      : classification.subject.state === 'known' || classification.section.state === 'known' ? 'partial' : 'unclassified',
+      issues:[...new Set(issues)],deduplication:'duplicate'};
+    return next;
   }
   function normalizeAttempt(input, options = {}){
     const attempt = object(input) ? input : {};
@@ -168,31 +215,8 @@
     });
     let duplicates = 0;
     for(const indexes of groups.values()){
-      const first = indexes[0], next = record(raw[first],attempt,first,settings);
-      next.sourceIndexes = indexes;
-      records.push(next);
-      if(indexes.length < 2) continue;
       duplicates += indexes.length - 1;
-      next.quality.deduplication = 'duplicate';
-      if(indexes.some(index => signature(raw[index]) !== signature(raw[first]))){
-        next.key = null;
-        for(const key of ['questionId','planSlotId']){
-          const values = [...new Set(indexes.map(index => raw[index]?.[key]).filter(text).map(value => value.trim()))];
-          next[key] = values.length > 1 ? field(null,'conflict',['duplicate_answers.'+key])
-            : values.length === 1 ? field(values[0],'known',['duplicate_answers.'+key]) : next[key];
-        }
-        next.status = 'unknown'; next.credit = field(null,'conflict',['duplicate_answers']);
-        next.omitted = field(null,'conflict',['duplicate_answers']);
-        next.domainEligible = false; next.knowledgeError = null;
-        next.exposure.countsAsExposure = null;
-        next.exposure.presented = field(null,'conflict',['duplicate_answers']);
-        for(const key of ['section','subject','subtopic']) next.classification[key] = field(null,'conflict',['duplicate_answers']);
-        next.classification.labels = {section:'Sin clasificar',subject:'Sin clasificar',subtopic:'Sin clasificar'};
-        next.classification.subtopicCandidates = [];
-        next.quality.classification = 'unclassified';
-        next.allocations = [];
-        next.quality.issues.push('conflicting_duplicate');
-      }
+      records.push(mergeRecords(indexes.map(index => record(raw[index],attempt,index,settings))));
     }
     const declaredTotal = read(attempt,'total','attempt.total',value => Number.isInteger(value) && value >= 0);
     const issues = [];
@@ -213,18 +237,55 @@
     if(!Array.isArray(attempts)) return {contractVersion:VERSION,attempts:[],issues:['invalid_history']};
     attempts.forEach((attempt,index) => {
       const id = text(attempt?.id) ? attempt.id.trim() : null;
-      if(id && seen.has(id)){
-        const existing = seen.get(id);
-        if(existing.signature !== signature(attempt)){
-          existing.value.records = [];
-          existing.value.completeness = 'incomplete';
-          if(!existing.value.issues.includes('conflicting_attempt_id')) existing.value.issues.push('conflicting_attempt_id');
-        }
-        issues.push({code:'duplicate_attempt_id',index,attemptId:id}); return;
-      }
       const value = normalizeAttempt(attempt,options);
-      normalized.push(value); if(id) seen.set(id,{signature:signature(attempt),value});
-      else issues.push({code:'missing_attempt_id',index});
+      value.sourceAttemptIndexes = [index];
+      if(!id || !seen.has(id)){
+        normalized.push(value);
+        if(id) seen.set(id,{value,variants:[{input:attempt,index,value:{...value}}]});
+        else issues.push({code:'missing_attempt_id',index});
+        return;
+      }
+      const existing = seen.get(id);
+      existing.variants.push({input:attempt,index,value});
+      const copies = [], provenance = [];
+      for(const variant of existing.variants){
+        (Array.isArray(variant.input.answers) ? variant.input.answers : []).forEach((answer,answerIndex) => {
+          copies.push(object(answer) && (variant.input.technicalTest === true || variant.input.evidenceKind === 'technical_test')
+            ? {...answer,technicalTest:true} : answer);
+          provenance.push({attemptIndex:variant.index,answerIndex});
+        });
+      }
+      const projection = normalizeAttempt({...existing.variants[0].input,technicalTest:false,evidenceKind:undefined,answers:copies},options);
+      const variantIssues = existing.variants.flatMap(variant => variant.value.issues);
+      let conflict = false;
+      for(const key of ['at','declaredTotal','reportedScore']){
+        projection[key] = mergeField(existing.variants.map(variant => ({...variant.value[key],
+          sources:variant.value[key].sources.map(source => 'attempts['+variant.index+'].'+source)})));
+        if(['conflict','invalid'].includes(projection[key].state)) conflict = true;
+      }
+      for(const record of projection.records){
+        record.provenance = record.sourceIndexes.map(sourceIndex => provenance[sourceIndex]);
+        if(record.quality.deduplication === 'unverifiable'){
+          // Repeated historical copies cannot establish which anonymous answer
+          // is the same question. Retain provenance without countable credits.
+          const omission = record.status === 'omitted';
+          if(!omission) record.credit = field(null,'conflict',record.credit.sources);
+          record.status = omission ? 'omitted' : 'unknown'; record.domainEligible = false; record.knowledgeError = null;
+          record.allocations = []; record.exposure.countsAsExposure = omission ? true : null;
+          record.quality.issues.push('unverifiable_history_identity');
+        }
+        record.at = {...projection.at,sources:[...projection.at.sources]};
+        record.finishReason = mergeField(existing.variants.map(variant => {
+          const reason = combine([read(variant.input,'finishReason','attempt.finishReason',value => ['manual','timeout'].includes(value)),
+            read(variant.input.timing,'finishReason','attempt.timing.finishReason',value => ['manual','timeout'].includes(value))]);
+          return {...reason,sources:reason.sources.map(source => 'attempts['+variant.index+'].'+source)};
+        }));
+      }
+      projection.sourceAttemptIndexes = existing.variants.map(variant => variant.index);
+      projection.issues = [...new Set(variantIssues.concat(projection.records.some(record => record.status === 'unknown') ? ['unknown_outcomes'] : [],conflict ? ['conflicting_attempt_id'] : []))];
+      projection.completeness = projection.issues.length || projection.declaredTotal.state !== 'known' || projection.declaredTotal.value !== projection.records.length ? 'incomplete' : 'complete';
+      Object.assign(existing.value,projection);
+      issues.push({code:'duplicate_attempt_id',index,attemptId:id});
     });
     return {contractVersion:VERSION,attempts:normalized,issues};
   }

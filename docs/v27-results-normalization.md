@@ -121,16 +121,34 @@ o de materias en conflicto no reciben atribución de subtema. Los códigos múlt
 se conservan como candidatos, sin asignar crédito a cada uno ni elegir el primero.
 Solo un subtema único y validado recibe una asignación completa.
 
-Dentro de un intento se deduplican identidades disponibles. Copias exactas se
-proyectan una vez; versiones contradictorias quedan como resultado desconocido,
-sin crédito atribuible ni clasificación escogida del primer registro. El historial
-deduplica IDs de intento: si el mismo ID tiene contenidos diferentes, se conserva
-el intento identificable con advertencia, sin respuestas agregables. Intentos con
-IDs distintos siguen siendo diferentes aunque repitan una pregunta.
+Dentro de un intento se conectan los aliases de pregunta/slot y se proyecta
+una sola unidad. La combinación se realiza por campos normalizados: diferencias
+descriptivas no invalidan créditos. Créditos y omisiones coincidentes se conservan;
+un conflicto exclusivo de `presented` solo afecta a la presentación. Créditos,
+identidades o condiciones de omisión incompatibles dejan el resultado académico
+como desconocido. La clasificación se combina independientemente y no elige una
+materia o subtema contradictorio. Un veto técnico de cualquier copia se conserva.
+`sourceIndexes` y las fuentes de cada campo identifican las copias originales.
+
+El historial deduplica IDs de intento. `reportedScore`, `declaredTotal` y `at` se
+combinan por separado: valores coincidentes se conservan y valores incompatibles
+quedan como `conflict`, sin elegir la primera copia. Las respuestas se normalizan
+y deduplican igualmente; no se inventan respuestas para reconciliar resúmenes.
+`sourceAttemptIndexes` identifica las copias de intento; en respuestas combinadas,
+`provenance` contiene pares `{attemptIndex, answerIndex}` para localizar sus fuentes.
+Un intento con conflictos en resúmenes queda incompleto, aunque conserve hechos
+coincidentes por reactivo. Intentos con IDs distintos siguen siendo diferentes.
+
+`groupId` solo admite cadenas primitivas del enum de secciones. Arrays y objetos
+no se convierten a claves válidas. Sin evidencia derivable del catálogo, una
+propiedad inexistente permanece `absent`, mientras que `groupId: null` permanece
+`unknown`, con su fuente. Ninguna proyección comparte referencias mutables de entrada.
 
 Sin identidades no se deduplica por contenido ni se inventan IDs: se informa que
 la deduplicación es no verificable. El consumidor no debe sumar esos registros
-entre importaciones como si hubiera una garantía de identidad.
+entre importaciones como si hubiera una garantía de identidad. Al combinar copias
+de un mismo intento con respuestas sin IDs, los créditos no verificables quedan
+como desconocidos y no aportan dominio; las omisiones conservan cero créditos.
 
 ## Compatibilidad y límites de esta fase
 
@@ -142,7 +160,7 @@ entre importaciones como si hubiera una garantía de identidad.
 - No reconstruye formatos o respuestas a partir de selecciones, texto o el banco.
 - No interpreta dificultad estimada como dificultad oficialmente calibrada.
 - La carga del módulo es posterior a los módulos existentes; el SW incluye el
-  recurso con caché `v6-76`, conservando el aislamiento por ámbito.
+  recurso con caché `v6-77`, conservando el aislamiento por ámbito.
 - No hay gráficos, tendencias, recomendaciones, comparaciones ni nueva interfaz.
 
 Las pruebas específicas usan catálogo real y datos sintéticos, entradas congeladas,

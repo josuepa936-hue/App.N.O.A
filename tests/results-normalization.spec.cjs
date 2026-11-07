@@ -130,7 +130,7 @@ test('duplicados exactos cuentan una vez y los contradictorios quedan en cuarent
   input.answers[1].ok=false;
   const conflict=await normalize(page,input);
   expect(conflict.records).toHaveLength(1);expect(conflict.records[0]).toMatchObject({status:'unknown',credit:{state:'conflict',value:null},domainEligible:false,allocations:[]});
-  expect(conflict.records[0].classification.labels.subject).toBe('Sin clasificar');
+  expect(conflict.records[0].classification.subject.value).toBe(subject);
 });
 
 test('historial deduplica IDs de intento sin colapsar intentos diferentes',async({page})=>{
@@ -141,7 +141,8 @@ test('historial deduplica IDs de intento sin colapsar intentos diferentes',async
     return {same:api.normalizeHistory([input,structuredClone(input),other]),conflict:api.normalizeHistory([input,{...input,score:99}])};
   },sample({}));
   expect(result.same.attempts).toHaveLength(2);expect(result.same.issues).toHaveLength(1);
-  expect(result.conflict.attempts).toHaveLength(1);expect(result.conflict.attempts[0].records).toEqual([]);
+  expect(result.conflict.attempts).toHaveLength(1);expect(result.conflict.attempts[0].reportedScore.state).toBe('conflict');
+  expect(result.conflict.attempts[0].records[0].credit.value).toBe(1);
   expect(result.conflict.attempts[0].issues).toContain('conflicting_attempt_id');
 });
 
@@ -223,6 +224,113 @@ test('normaliza un cierre v26 real con parcial y omisiones sin tocar memoria o r
   expect(projected).toMatchObject({unchanged:true,memoryUnchanged:true,calUnchanged:true,backupSame:true});
 });
 
+for(const [group,state] of [[undefined,'absent'],[null,'unknown'],['primary','known'],[['primary'],'conflict'],[{},'conflict'],[{toString:'primary'},'conflict'],['other','conflict']]){
+  test('sección estricta y estado '+state+' para '+JSON.stringify(group),async({page})=>{
+    const input={id:'section',total:1,answers:[{questionId:'q',ok:true,...(group===undefined?{}:{groupId:group})}]};
+    const result=await normalize(page,input);
+    expect(result.records[0].classification.section.state).toBe(state);
+    expect(result.records[0].classification.section.sources).toEqual(group===undefined?[]:['answer.groupId']);
+    if(state==='known') expect(result.records[0].classification.section.value).toBe('primary');
+    else expect(result.records[0].classification.section.value).toBeNull();
+  });
+}
+
+test('proyecciones de arrays y objetos congelados no exponen referencias de entrada',async({page})=>{
+  await openApp(page);
+  const result=await page.evaluate(()=>{
+    const input={id:'frozen',answers:[{questionId:'a',groupId:['primary'],ok:true},{questionId:'b',groupId:{value:'primary'},ok:false}]};
+    const freeze=value=>{if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
+    freeze(input);const before=JSON.stringify(input);
+    const projection=NOA_RESULTS_NORMALIZATION_V27.normalizeAttempt(input);
+    const objects=value=>value&&typeof value==='object'?[value,...Object.values(value).flatMap(objects)]:[];
+    const inputs=new Set(objects(input));
+    const shared=objects(projection).some(value=>inputs.has(value));
+    projection.records[0].classification.section.value=['modified'];projection.records[1].quality.issues.push('modified');
+    return {shared,unchanged:before===JSON.stringify(input)};
+  });
+  expect(result).toEqual({shared:false,unchanged:true});
+});
+
+for(const omitted of [false,true]){
+  test('duplicados coincidentes conservan '+(omitted?'omisión':'parcial')+' pese a presentación y descripción distintas',async({page})=>{
+    const input=sample({scoreFraction:omitted?0:0.5,ok:false,omitted,presented:false});
+    input.answers.push({...input.answers[0],presented:true,explanation:'Otra descripción'});
+    const result=await normalize(page,input,{evidenceKind:'student'}),record=result.records[0];
+    expect(record.credit.value).toBe(omitted?0:0.5);expect(record.status).toBe(omitted?'omitted':'partial');
+    expect(record.exposure.presented.state).toBe('conflict');expect(record.sourceIndexes).toEqual([0,1]);
+    expect(record.credit.sources).toHaveLength(2);expect(record.domainEligible).toBe(!omitted);
+  });
+}
+
+test('clasificación contradictoria no se elige del primero ni borra crédito coincidente',async({page})=>{
+  const input=sample({scoreFraction:0.5,ok:false});
+  input.answers.push({...input.answers[0],subject:'EXCOBA Medicina · Biología',syllabusCode:'3.4.1'});
+  const record=(await normalize(page,input)).records[0];
+  expect(record.credit.value).toBe(0.5);expect(record.classification.subject.state).toBe('conflict');
+  expect(record.classification.labels.subject).toBe('Sin clasificar');expect(record.allocations).toEqual([]);
+});
+
+test('omisiones vs respuestas y vetos técnicos se resuelven por separado',async({page})=>{
+  const input=sample({scoreFraction:0,ok:false,omitted:true});
+  input.answers.push({...input.answers[0],omitted:false,technicalTest:true});
+  const record=(await normalize(page,input,{evidenceKind:'student'})).records[0];
+  expect(record.credit.state).toBe('conflict');expect(record.omitted.state).toBe('conflict');
+  expect(record.evidenceKind).toBe('technical_test');expect(record.domainEligible).toBe(false);
+});
+
+test('historial combina campos coincidentes y marca resúmenes incompatibles con procedencia',async({page})=>{
+  await openApp(page);
+  const input=sample({scoreFraction:0.5,ok:false});
+  const result=await page.evaluate(input=>{
+    const variants=[input,{...structuredClone(input),score:0,total:2,at:'2026-07-01T12:00:00.000Z'}, {...structuredClone(input),note:'No académico'}];
+    const before=JSON.stringify(variants);
+    const first=NOA_RESULTS_NORMALIZATION_V27.normalizeHistory(variants);
+    const second=NOA_RESULTS_NORMALIZATION_V27.normalizeHistory(variants);
+    return {first,same:JSON.stringify(first)===JSON.stringify(second),unchanged:before===JSON.stringify(variants)};
+  },input);
+  const attempt=result.first.attempts[0];expect(result.first.attempts).toHaveLength(1);
+  for(const key of ['reportedScore','declaredTotal','at']){
+    expect(attempt[key].state).toBe('conflict');expect(attempt[key].value).toBeNull();expect(attempt[key].sources).toHaveLength(3);
+  }
+  expect(attempt.records).toHaveLength(1);expect(attempt.records[0].credit.value).toBe(0.5);
+  expect(attempt.records[0].provenance).toEqual([{attemptIndex:0,answerIndex:0},{attemptIndex:1,answerIndex:0},{attemptIndex:2,answerIndex:0}]);
+  expect(attempt.sourceAttemptIndexes).toEqual([0,1,2]);expect(result.same).toBe(true);expect(result.unchanged).toBe(true);
+});
+
+test('un conflicto exclusivo de total conserva puntuación y fecha coincidentes',async({page})=>{
+  await openApp(page);
+  const result=await page.evaluate(input=>NOA_RESULTS_NORMALIZATION_V27.normalizeHistory([input,{...structuredClone(input),total:2}]),sample({}));
+  const attempt=result.attempts[0];
+  expect(attempt.declaredTotal).toMatchObject({state:'conflict',value:null});
+  expect(attempt.reportedScore).toMatchObject({state:'known',value:1});
+  expect(attempt.at).toMatchObject({state:'known',value:at});
+  expect(attempt.reportedScore.sources).toEqual(['attempts[0].attempt.score','attempts[1].attempt.score']);
+});
+
+test('historial ignora diferencias descriptivas y conserva resúmenes coincidentes',async({page})=>{
+  await openApp(page);
+  const result=await page.evaluate(input=>NOA_RESULTS_NORMALIZATION_V27.normalizeHistory([input,structuredClone(input),{...structuredClone(input),note:'descriptivo'}]),sample({}));
+  expect(result.attempts).toHaveLength(1);const attempt=result.attempts[0];
+  expect(attempt.reportedScore).toMatchObject({state:'known',value:1});expect(attempt.declaredTotal.value).toBe(1);
+  expect(attempt.at.state).toBe('known');expect(attempt.records).toHaveLength(1);expect(attempt.records[0].credit.value).toBe(1);
+  expect(attempt.completeness).toBe('complete');
+});
+
+test('copias de un histórico sin IDs no generan créditos duplicados por posición',async({page})=>{
+  await openApp(page);
+  const result=await page.evaluate(()=>{
+    const input={id:'anonymous',total:1,score:1,answers:[{ok:true}]};
+    const omission={id:'omission',total:1,score:0,answers:[{omitted:true,scoreFraction:0,presented:false}]};
+    return {answered:NOA_RESULTS_NORMALIZATION_V27.normalizeHistory([input,structuredClone(input)]),
+      omitted:NOA_RESULTS_NORMALIZATION_V27.normalizeHistory([omission,structuredClone(omission)])};
+  });
+  expect(result.omitted.attempts[0].records.every(record=>record.status==='omitted' && record.credit.value===0 && !record.domainEligible)).toBe(true);
+  const attempt=result.answered.attempts[0];expect(result.answered.attempts).toHaveLength(1);
+  expect(attempt.completeness).toBe('incomplete');
+  expect(attempt.records.every(record=>record.credit.state==='conflict' && record.credit.value===null && !record.domainEligible)).toBe(true);
+  expect(attempt.records.flatMap(record=>record.provenance)).toEqual([{attemptIndex:0,answerIndex:0},{attemptIndex:1,answerIndex:0}]);
+});
+
 test.describe('normalizador disponible offline con SW real',()=>{
   test.use({serviceWorkers:'allow'});
   test('carga desde ASSETS y conserva la API tras recargar offline',async({page,context})=>{
@@ -232,7 +340,7 @@ test.describe('normalizador disponible offline con SW real',()=>{
       const names=(await caches.keys()).filter(name=>name.startsWith('noa-mobile:'+encodeURIComponent(scope)+':'));
       return {names,asset:!!await (await caches.open(names[0])).match(new URL('excoba_patch_v27_results_normalization.js',scope).href)};
     });
-    expect(cached.names).toHaveLength(1);expect(cached.names[0]).toMatch(/:v6-76$/);expect(cached.asset).toBe(true);
+    expect(cached.names).toHaveLength(1);expect(cached.names[0]).toMatch(/:v6-77$/);expect(cached.asset).toBe(true);
     await context.setOffline(true);await page.reload();await page.waitForFunction(()=>!!window.NOA_RESULTS_NORMALIZATION_V27);
     expect(await page.evaluate(()=>NOA_RESULTS_NORMALIZATION_V27.normalizeAttempt({answers:[{ok:false}]}).records[0].credit.value)).toBe(0);
   });
