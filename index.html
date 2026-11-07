@@ -547,6 +547,11 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
         <div class="field" style="margin-top:10px"><label>Materia</label><select id="examSubject"></select></div>
         <div class="row" style="margin-top:14px"><button class="btn primary" onclick="startExam()">Generar simulacro</button><button class="btn" onclick="openQuestionModal()">+ Añadir pregunta</button></div>
         <p class="small">NOA prioriza preguntas de temas con menor dominio. Puedes usar preguntas manuales y generadas.</p>
+        <div class="field" style="margin-top:14px">
+          <label for="noaExamTimed" style="display:flex;align-items:center;gap:8px"><input id="noaExamTimed" type="checkbox" style="width:auto" aria-describedby="noaExamTimingHelp" onchange="document.getElementById('noaExamDurationMinutes').disabled=!this.checked"> Simulacro con límite de tiempo</label>
+          <div class="field" style="margin-top:8px"><label for="noaExamDurationMinutes">Duración elegida (minutos)</label><input id="noaExamDurationMinutes" type="number" min="1" max="1440" step="1" value="60" disabled style="max-width:180px" aria-describedby="noaExamTimingHelp"></div>
+          <p class="small" id="noaExamTimingHelp">Aplica al próximo simulacro manual o generado, de cualquier tamaño. Es una duración de práctica elegida por ti; no una duración oficial verificada. Desactívalo para entrenar sin límite.</p>
+        </div>
       </div>
       <div class="card"><h3>Resultados</h3><div id="examStats" class="muted">Aún no hay simulacros.</div></div>
     </div>
@@ -1228,6 +1233,7 @@ function rateCard(q){
 function openQuestionModal(){openModal('questionModal')}
 function addQuestion(){let text=document.getElementById('qText').value.trim();let opts=['qA','qB','qC','qD'].map(id=>document.getElementById(id).value.trim());if(!text||opts.some(x=>!x))return toast('Completa la pregunta y opciones');db.questions.push({id:uid(),topicId:document.getElementById('qTopic').value,text,options:opts,correct:'ABCD'.indexOf(document.getElementById('qCorrect').value),explain:document.getElementById('qExplain').value.trim()});act('Pregunta añadida al banco');closeModal('questionModal');save()}
 function startExam(){
+  if(!validExamTimingConfiguration()) return;
 
   const sid =
     document.getElementById('examSubject').value;
@@ -1380,6 +1386,12 @@ function judgeReviewHTML(answer){
     <p class="small">Evaluación interna de IA; no es una validación científica independiente.</p>
   </div>`;
 }
+function validExamTimingConfiguration(){
+  if(window.NOA_EXAM_RECOVERY?.state?.()?.recovering) return true;
+  try{ window.NOA_EXAM_SHELL?.configuration?.(); return true; }
+  catch(error){ toast(error?.message || 'Revisa la duración del simulacro.'); return false; }
+}
+
 // Commit an exam once at its explicit completion boundary, before presenting it.
 // The memory operation is secondary: its failure never rolls back an attempt.
 const noaCompletedExamCommits = new WeakMap();
@@ -1392,26 +1404,66 @@ function reportExamCommitDiagnostic(detail){
   }catch{}
   console.warn('NOA_QUESTION_MEMORY_COMMIT', detail);
 }
-async function commitCompletedExam(){
+async function commitCompletedExam(options = {}){
   const sessionAnswers = examAnswers;
   const previous = noaCompletedExamCommits.get(sessionAnswers);
   if(previous) return previous;
+  const shell = window.NOA_EXAM_SHELL;
+  let timing = shell?.state?.().timing || null;
+  // Read before creating a closing checkpoint: a prior write may have succeeded
+  // although its verification read failed. Never overwrite that durable result.
+  let durable = null;
+  if(timing){
+    durable = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if(durable !== null && (typeof durable !== 'object' || Array.isArray(durable) ||
+      !Array.isArray(durable.attempts))) throw new Error('El almacenamiento del intento no es válido.');
+  }
+  const expired = timing && (timing.finishReason === 'timeout' ||
+    timing.status === 'open' && Date.now() >= timing.deadlineAt);
+  if(options?.reason === 'timeout' && !expired && timing?.status !== 'closing') return null;
+  if(expired && examQueue.length){
+    timing = shell.prepareCompletion('timeout');
+    const presented = new Set(timing.presentedQuestionIds);
+    const answered = new Set(sessionAnswers.map(answer => String(answer.questionId)));
+    for(const question of examQueue){
+      if(answered.has(String(question.id))) continue;
+      const type = question.interactionType || 'single_select';
+      const omission = {
+        questionId:question.id, question:question.text || question.stem || '',
+        topicId:question.topicId || '', syllabusCode:question.syllabusCode || '',
+        blueprint:question.blueprint || null, judge:question.judge || null,
+        explanation:question.explain || '',
+        ...(window.NOA_MIXED_EXAM?.answerMetadata?.(question) || {}),
+        interactionType:type, ok:false, scoreFraction:0, omitted:true,
+        omissionReason:'timeout', presented:presented.has(String(question.id))
+      };
+      if(type === 'single_select'){
+        omission.options = [...question.options];
+        omission.correctIndex = question.correct;
+      }
+      sessionAnswers.push(omission);
+    }
+    // Credit already recorded is authoritative; an omission never updates topics.
+    examScore = sessionAnswers.reduce((sum,answer) => sum +
+      (Number.isFinite(answer.scoreFraction) ? answer.scoreFraction : answer.ok ? 1 : 0),0);
+    examIndex = examQueue.length;
+  }
   if(!examQueue.length || examIndex < examQueue.length || examAnswers.length !== examQueue.length){
     reportExamCommitDiagnostic({operation:'attempt_commit', error:'incomplete_exam'});
     return null;
   }
+  if(timing) timing = shell.prepareCompletion(timing.finishReason || 'manual');
 
-  // Snapshot all inputs synchronously. A new session, import or reset may run
-  // while question memory subsequently waits for Web Crypto or its write lock.
+  // Capture synchronously, before memory waits for crypto or its write lock.
   const sessionDatabase = db;
-  const databaseSnapshot = JSON.parse(JSON.stringify(sessionDatabase));
   const questions = JSON.parse(JSON.stringify(examQueue));
   const answers = JSON.parse(JSON.stringify(sessionAnswers));
+  if(timing) for(const answer of answers) if(answer.omitted !== true) answer.presented = true;
   for(const question of questions){
     if(typeof question.subject === 'string' && question.subject.trim() ||
       typeof question.blueprintSlot?.subject === 'string' && question.blueprintSlot.subject.trim()) continue;
-    const topic = databaseSnapshot.topics.find(item => item.id === question.topicId);
-    const subject = topic && databaseSnapshot.subjects.find(item => item.id === topic.subjectId);
+    const topic = sessionDatabase.topics.find(item => item.id === question.topicId);
+    const subject = topic && sessionDatabase.subjects.find(item => item.id === topic.subjectId);
     if(typeof subject?.name === 'string' && subject.name.trim()) question.subject = subject.name;
   }
   const difficultyStats = {};
@@ -1422,8 +1474,22 @@ async function commitCompletedExam(){
     if(answer.ok) difficultyStats[level].correct++;
   }
   const pct = questions.length ? Math.round(examScore / questions.length * 100) : 0;
-  const attempt = {id:uid(), score:examScore, total:questions.length, pct,
-    at:new Date().toISOString(), difficultyStats, answers};
+  const finalTiming = timing ? {...timing,status:'closed'} : null;
+  let attempt = {id:timing?.attemptId || uid(), score:examScore, total:questions.length, pct,
+    at:finalTiming ? new Date(finalTiming.closedAt).toISOString() : new Date().toISOString(),
+    difficultyStats, answers,
+    ...(finalTiming ? {timing:finalTiming,finishReason:finalTiming.finishReason} : {})};
+  const stable = value => JSON.stringify(value,(_,item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key,item[key]])) : item);
+  const durableAttempt = timing && durable?.attempts?.find(item => item.id === timing.attemptId);
+  if(durableAttempt && stable(durableAttempt) !== stable(attempt)){
+    throw new Error('El identificador del cierre ya pertenece a otro resultado.');
+  }
+  if(timing && !durableAttempt && sessionDatabase.attempts.some(item => item.id === timing.attemptId)){
+    throw new Error('No se pudo verificar el intento guardado.');
+  }
+  if(timing && !durableAttempt) window.NOA_EXAM_RECOVERY?.save?.();
+  const databaseSnapshot = JSON.parse(JSON.stringify(sessionDatabase));
   const attemptsReference = sessionDatabase.attempts;
   const activityReference = sessionDatabase.activity;
   const hadActiveExam = Object.prototype.hasOwnProperty.call(sessionDatabase,'activeExam');
@@ -1432,31 +1498,52 @@ async function commitCompletedExam(){
   const completion = new Promise((resolve,reject) => { resolveCommit = resolve; rejectCommit = reject; });
   noaCompletedExamCommits.set(sessionAnswers, completion);
 
-  try{
-    sessionDatabase.attempts.push(attempt);
+  if(durableAttempt){
+    // Reconcile only the fields owned by this commit, retaining the saved JSON.
+    attempt = durableAttempt;
+    const live = attemptsReference.find(item => item.id === attempt.id);
+    if(live && stable(live) !== stable(attempt)){
+      noaCompletedExamCommits.delete(sessionAnswers);
+      rejectCommit(new Error('El intento guardado no coincide con la sesión.'));
+      return completion;
+    }
+    if(!live) attemptsReference.push(attempt);
+    const activityIds = new Set(activityReference.map(item => item.id));
+    const missing = (durable.activity || []).filter(item => !activityIds.has(item.id));
+    if(missing.length) sessionDatabase.activity = [...missing,...activityReference].slice(0,50);
     delete sessionDatabase.activeExam;
-    act(`Simulacro: ${attempt.score}/${attempt.total} (${pct}%)`);
-    let saveError;
-    try{ save(); }catch(error){ saveError = error; }
-    const persisted = JSON.parse(localStorage.getItem(KEY) || 'null');
-    const storedAttempt = persisted?.attempts?.find(item => item.id === attempt.id);
-    if(JSON.stringify(storedAttempt) !== JSON.stringify(attempt)) throw saveError || new Error('attempt_not_saved');
-  }catch(error){
-    // These are the only domain fields touched by the commit. Keep the live
-    // queue, score and answers available so a failed save can be retried.
-    attemptsReference.length = databaseSnapshot.attempts.length;
-    sessionDatabase.attempts = attemptsReference;
-    activityReference.length = 0;
-    for(const entry of databaseSnapshot.activity) activityReference.push(entry);
-    sessionDatabase.activity = activityReference;
-    if(hadActiveExam) sessionDatabase.activeExam = activeExamReference;
-    else delete sessionDatabase.activeExam;
-    noaCompletedExamCommits.delete(sessionAnswers);
-    reportExamCommitDiagnostic({operation:'attempt_commit', error:'attempt_not_saved', attemptId:attempt.id});
-    rejectCommit(error);
-    return completion;
+  }else{
+    try{
+      attemptsReference.push(attempt);
+      delete sessionDatabase.activeExam;
+      act(`Simulacro: ${attempt.score}/${attempt.total} (${pct}%)`);
+      let saveError;
+      try{ save(); }catch(error){ saveError = error; }
+      let storedAttempt;
+      try{
+        storedAttempt = JSON.parse(localStorage.getItem(KEY) || 'null')?.attempts?.find(item => item.id === attempt.id);
+      }catch(error){
+        if(!timing) throw error;
+        // A timed write gets one verification retry, without a second write.
+        storedAttempt = JSON.parse(localStorage.getItem(KEY) || 'null')?.attempts?.find(item => item.id === attempt.id);
+      }
+      if(JSON.stringify(storedAttempt) !== JSON.stringify(attempt)) throw saveError || new Error('attempt_not_saved');
+    }catch(error){
+      attemptsReference.length = databaseSnapshot.attempts.length;
+      sessionDatabase.attempts = attemptsReference;
+      activityReference.length = 0;
+      for(const entry of databaseSnapshot.activity) activityReference.push(entry);
+      sessionDatabase.activity = activityReference;
+      if(hadActiveExam) sessionDatabase.activeExam = activeExamReference;
+      else delete sessionDatabase.activeExam;
+      noaCompletedExamCommits.delete(sessionAnswers);
+      if(timing) shell.completionFailed(sessionAnswers);
+      reportExamCommitDiagnostic({operation:'attempt_commit', error:'attempt_not_saved', attemptId:attempt.id});
+      rejectCommit(error);
+      return completion;
+    }
   }
-
+  if(timing) shell.markCommitted(sessionAnswers,attempt.id);
   try{
     const memory = window.NOA_QUESTION_MEMORY_V25_2;
     if(typeof memory?.recordSavedAttempt !== 'function'){
@@ -1880,6 +1967,7 @@ function renderExam(){
 
 }
 function answerExam(i){
+  if(window.NOA_EXAM_SHELL?.canInteract?.() === false) return;
 
   const q = examQueue[examIndex];
 
@@ -2033,6 +2121,7 @@ function answerExam(i){
 
 }  
 async function nextExam(){
+  if(window.NOA_EXAM_SHELL?.canInteract?.() === false) return;
   const sessionAnswers = examAnswers, sessionDatabase = db, previousIndex = Math.min(examIndex, Math.max(0,examQueue.length - 1));
   examIndex++;
   if(examQueue.length && examIndex >= examQueue.length){
@@ -2833,6 +2922,7 @@ function selectQuestionsForSubject(sid,count){
   const top=pool.slice(0,Math.min(pool.length,Math.max(count*3,count)));shuffle(top);return top.slice(0,count);
 }
 function beginExamQueue(queue,label='Simulacro'){
+  if(!validExamTimingConfiguration()) return;
   if(!queue.length){toast('No hay preguntas suficientes');return}
   window.NOA_MIXED_EXAM?.stop?.();
   examQueue=queue;examIndex=0;examScore=0;examAnswers=[];page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);

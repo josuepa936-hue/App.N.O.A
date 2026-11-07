@@ -23,6 +23,9 @@
 
   const VERSION = '21.0';
 
+  const canInteract = () => window.NOA_EXAM_SHELL?.canInteract?.() !== false;
+
+
   const drafts =
     new Map();
 
@@ -45,7 +48,7 @@
   function deferForSession(callback, delay){
     const answers = examAnswers;
     setTimeout(() => {
-      if(answers === examAnswers) callback();
+      if(answers === examAnswers && canInteract()) callback();
     }, delay);
   }
 
@@ -189,9 +192,24 @@
       return false;
     }
     try{
-      if(examQueue.length && examIndex >= 0 && examIndex < examQueue.length){
+      const clock = window.NOA_EXAM_SHELL.state();
+      const timing = clock?.timing;
+      const closing = timing && (timing.status !== 'open' || Date.now() >= timing.deadlineAt);
+      if(closing){
+        // A completed write may have succeeded even if its verification read
+        // failed. Never replace that durable result with a stale checkpoint.
+        const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if(stored !== null && (typeof stored !== 'object' || Array.isArray(stored) ||
+          !Array.isArray(stored.attempts))) throw new Error('Checkpoint storage is invalid');
+        if(stored?.attempts?.some(attempt => attempt.id === timing.attemptId)) return true;
+      }
+      if(timing && db.attempts.some(attempt => attempt.id === timing.attemptId)){
+        delete db.activeExam;
+        return true;
+      }
+      if(examQueue.length && examIndex >= 0 && (examIndex < examQueue.length || closing)){
         const mixed = mixedState().mixedMode;
-        if(mixed){
+        if(mixed && !closing){
           saveCurrentDraft();
           const question = currentQuestion();
           // Responder puede haber cerrado el renderer antes de record*(0).
@@ -216,9 +234,9 @@
           index:examIndex,
           score:examScore,
           answers:clone(examAnswers),
-          drafts:mixed ? clone([...drafts]) : [],
-          clock:mixed ? window.NOA_EXAM_SHELL.state() : null,
-          revision:mixed ? window.NOA_ANSWER_REVISION?.capture?.() || null : null
+          drafts:mixed && !closing ? clone([...drafts]) : [],
+          clock:mixed || timing ? clone(clock) : null,
+          revision:mixed && !closing ? window.NOA_ANSWER_REVISION?.capture?.() || null : null
         };
       }else{
         delete db.activeExam;
@@ -275,9 +293,12 @@
   }
 
   function validRecovery(snapshot){
+    const timing = snapshot?.clock?.timing;
+    if(timing && (!Array.isArray(snapshot.queue) || !window.NOA_EXAM_SHELL.validTiming?.(timing,snapshot.queue))) return false;
+    const closing = timing && timing.status !== 'open';
     if(!snapshot || snapshot.version !== 1 || typeof snapshot.mixed !== 'boolean' ||
       !Array.isArray(snapshot.queue) || !snapshot.queue.length ||
-      !Number.isInteger(snapshot.index) || snapshot.index < 0 || snapshot.index >= snapshot.queue.length ||
+      !Number.isInteger(snapshot.index) || snapshot.index < 0 || snapshot.index > snapshot.queue.length || snapshot.index === snapshot.queue.length && !closing ||
       !Number.isFinite(snapshot.score) || snapshot.score < 0 || snapshot.score > snapshot.queue.length ||
       !Array.isArray(snapshot.answers) || !Array.isArray(snapshot.drafts)) return false;
     const questions = new Map();
@@ -309,8 +330,17 @@
     for(const answer of snapshot.answers){
       const id = String(answer?.questionId || '');
       const question = questions.get(id);
-      if(!question || answer.questionId !== question.id || answered.has(id) ||
-        !validEditor(question, answer)) return false;
+      if(!question || answer.questionId !== question.id || answered.has(id)) return false;
+      if(answer.omitted === true){
+        if(!closing || timing.finishReason !== 'timeout' || answer.omissionReason !== 'timeout' ||
+          answer.ok !== false || answer.scoreFraction !== 0 || typeof answer.presented !== 'boolean' ||
+          answer.presented !== timing.presentedQuestionIds.includes(String(question.id)) ||
+          answer.interactionType !== (question.interactionType || 'single_select') ||
+          ['selected','userAnswer','assignments','selections','order'].some(key => Object.prototype.hasOwnProperty.call(answer,key))) return false;
+        answered.add(id);
+        continue;
+      }
+      if(!validEditor(question, answer)) return false;
       if((question.interactionType || 'single_select') === 'single_select' &&
         (!Number.isInteger(answer.selected) || answer.selected < 0 || answer.selected >= question.options.length ||
           answer.correctIndex !== question.correct)) return false;
@@ -328,7 +358,7 @@
     }
     if(snapshot.revision){
       const question = snapshot.queue[snapshot.index];
-      if(!snapshot.mixed || snapshot.revision.index !== snapshot.index ||
+      if(!question || closing || !snapshot.mixed || snapshot.revision.index !== snapshot.index ||
         String(snapshot.revision.questionId) !== String(question.id) ||
         snapshot.revision.type !== (question.interactionType || 'single_select') ||
         !answered.has(String(question.id)) || !validEditor(question, snapshot.revision.editor)) return false;
@@ -342,6 +372,12 @@
     try{
       const snapshot = clone(db.activeExam);
       if(!validRecovery(snapshot)) throw new Error('Checkpoint incompatible');
+      const timing = snapshot.clock?.timing;
+      if(timing && db.attempts.some(attempt => attempt.id === timing.attemptId)){
+        delete db.activeExam;
+        localStorage.setItem(KEY,JSON.stringify(db));
+        return false;
+      }
       recoveringSession = true;
       recoverySnapshot = snapshot;
       if(snapshot.mixed){
@@ -351,7 +387,8 @@
       }
       recoveringSession = false;
       persistSession();
-      if(typeof toast === 'function') toast('Examen recuperado. Puedes continuar.');
+      if(typeof toast === 'function') toast(timing && (timing.status !== 'open' || Date.now() >= timing.deadlineAt)
+        ? 'Examen recuperado. Se está completando su cierre.' : 'Examen recuperado. Puedes continuar.');
       return true;
     }catch(err){
       if(typeof toast === 'function') toast('No pude recuperar el examen guardado. Puedes iniciar otro.');
@@ -1246,6 +1283,8 @@
 
   function restoreCurrent(){
 
+    if(!canInteract()) return;
+
     const mixed =
       mixedState();
 
@@ -1845,6 +1884,8 @@
     targetIndex
   ){
 
+    if(!canInteract()) return;
+
     const mixed =
       mixedState();
 
@@ -1881,6 +1922,11 @@
       return;
     }
 
+
+    // A renderer may already have submitted while its deferred recorder is
+    // still queued. Preserve that answer before changing the current question.
+    window.NOA_MIXED_EXAM?.flushPendingAnswers?.();
+    if(!canInteract()) return;
 
     saveCurrentDraft();
 
@@ -1957,6 +2003,8 @@
 
   async function finishExam(){
 
+    if(!canInteract()) return;
+
     const mixed =
       mixedState();
 
@@ -1967,6 +2015,9 @@
       return;
     }
 
+
+    window.NOA_MIXED_EXAM?.flushPendingAnswers?.();
+    if(!canInteract()) return;
 
     const answered =
       examQueue.filter(
@@ -2052,6 +2103,8 @@
       function(
         optionIndex
       ){
+
+        if(!canInteract()) return;
 
         const mixed =
           mixedState();
@@ -2145,6 +2198,8 @@
     window.nextExam =
       function(){
 
+        if(!canInteract()) return;
+
         const mixed =
           mixedState();
 
@@ -2218,11 +2273,21 @@
         drafts.clear();
         for(const [key, draft] of recovered.drafts) drafts.set(String(key), clone(draft));
         sessionTitle = recovered.title || sessionTitle;
+        window.NOA_EXAM_SHELL.restore(recovered.clock,{sync:false});
+        const timing = window.NOA_EXAM_SHELL.state().timing;
+        if(timing && (timing.status !== 'open' || Date.now() >= timing.deadlineAt)){
+          pendingRestore = null;
+          closeRenderers();
+          window.NOA_ANSWER_REVISION?.closeForClosure?.();
+          window.NOA_EXAM_SHELL.expire();
+          return;
+        }
       }
 
       if(examQueue.length && examIndex >= examQueue.length){
-        // El núcleo persiste el intento al finalizar; no guardar una sesión terminada.
-        delete db.activeExam;
+        // Preserve a failed timed commit for retry; durable attempts own closure.
+        const timing = window.NOA_EXAM_SHELL.state().timing;
+        if(!timing || db.attempts.some(attempt => attempt.id === timing.attemptId)) delete db.activeExam;
       }
 
       // La generación sigue siendo monotónica entre sesiones.
@@ -2249,7 +2314,6 @@
 
       if(recovered){
         if(recovered.mixed){
-          window.NOA_EXAM_SHELL.restore(recovered.clock);
           if(recovered.revision && !window.NOA_ANSWER_REVISION.restore(recovered.revision)){
             throw new Error('No pude recuperar la revisión');
           }

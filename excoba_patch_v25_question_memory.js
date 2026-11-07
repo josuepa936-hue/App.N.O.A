@@ -373,6 +373,46 @@
     return trackRecord(recordExamInternal(questions, sessionId, options, operationEpoch));
   }
 
+  // Timed attempts keep complete outcome records. Exposure is a separate
+  // fact: an unanswered question which was never displayed was not presented.
+  // The bank keeps its original compact schema and fingerprint contract.
+  function validTimedAttempt(attempt){
+    if(!own(attempt,'timing')) return true;
+    const timing = attempt.timing;
+    if(!object(timing) || timing.version !== 26 || timing.status !== 'closed' ||
+      !text(timing.attemptId) || timing.attemptId !== attempt.id ||
+      !['manual','timeout'].includes(timing.finishReason) ||
+      own(attempt,'finishReason') && attempt.finishReason !== timing.finishReason ||
+      !Number.isFinite(timing.startedAt) || !Number.isFinite(timing.durationMs) || timing.durationMs <= 0 ||
+      !Number.isFinite(timing.deadlineAt) || timing.deadlineAt !== timing.startedAt + timing.durationMs ||
+      !Number.isFinite(timing.closedAt) || timing.closedAt < timing.startedAt ||
+      timing.finishReason === 'timeout' && timing.closedAt !== timing.deadlineAt ||
+      timing.finishReason === 'manual' && timing.closedAt >= timing.deadlineAt ||
+      !Array.isArray(timing.presentedQuestionIds) || timing.presentedQuestionIds.some(id => !text(id)) ||
+      new Set(timing.presentedQuestionIds).size !== timing.presentedQuestionIds.length ||
+      !Number.isInteger(attempt.total) || attempt.total < 1 || !Array.isArray(attempt.answers) ||
+      attempt.answers.length !== attempt.total) return false;
+    const ids = new Set(attempt.answers.map(answer => String(answer?.questionId ?? '')));
+    if(ids.size !== attempt.total || ids.has('') || timing.presentedQuestionIds.some(id => !ids.has(id))) return false;
+    const presented = new Set(timing.presentedQuestionIds);
+    let credit = 0;
+    for(const answer of attempt.answers){
+      if(!object(answer) || typeof answer.presented !== 'boolean' ||
+        answer.presented !== presented.has(String(answer.questionId))) return false;
+      if(answer.omitted === true){
+        if(timing.finishReason !== 'timeout' || answer.omissionReason !== 'timeout' ||
+          answer.ok !== false || answer.scoreFraction !== 0 ||
+          ['selected','assignments','selections','order','userAnswer'].some(key => own(answer,key))) return false;
+      }else{
+        if(answer.omitted !== undefined && answer.omitted !== false || answer.presented !== true) return false;
+        const fraction = answer.scoreFraction === undefined ? (answer.ok ? 1 : 0) : answer.scoreFraction;
+        if(typeof fraction !== 'number' || !Number.isFinite(fraction) || fraction < 0 || fraction > 1) return false;
+        credit += fraction;
+      }
+    }
+    return Number.isFinite(attempt.score) && Math.abs(attempt.score - credit) < 0.000001;
+  }
+
   async function registerSavedAttempt(attempt, questions){
     const attemptId = attempt?.id;
     let result, persistedConfirmed = false;
@@ -387,9 +427,18 @@
         const answered = Array.isArray(persisted.answers) ? persisted.answers.map(answer => String(answer?.questionId ?? '')) : [];
         const complete = ids.length > 0 && ids.length === persisted.total && ids.length === answered.length &&
           new Set(ids).size === ids.length && new Set(answered).size === ids.length && ids.every(id => id && answered.includes(id));
-        result = complete
-          ? await window.NOA_QUESTION_MEMORY_V25_2.recordExam(questions, 'history:' + attemptId, {seenAt:attempt.at})
-          : {ok:false, error:'incomplete_exam'};
+        if(!complete) result = {ok:false, error:'incomplete_exam'};
+        else if(!validTimedAttempt(persisted)) result = {ok:false, error:'invalid_timed_attempt'};
+        else{
+          const outcomes = new Map(persisted.answers.map(answer => [String(answer.questionId),answer]));
+          const exposures = questions.filter(question => {
+            const outcome = outcomes.get(String(question.id));
+            return !(outcome.omitted === true && outcome.presented === false);
+          });
+          result = exposures.length
+            ? await window.NOA_QUESTION_MEMORY_V25_2.recordExam(exposures, 'history:' + attemptId, {seenAt:attempt.at})
+            : {ok:true, added:0, updated:0, unchanged:0, skipped:questions.length, reason:'no_exposure'};
+        }
       }
     }catch{ result = {ok:false, error:'memory_exception'}; }
     if(!result || typeof result.ok !== 'boolean') result = {ok:false, error:'invalid_memory_result'};
@@ -449,8 +498,18 @@
         issues.push({attemptId:attempt?.id ?? null, reason:'missing_session_date_or_answers'});
         continue;
       }
+      if(!validTimedAttempt(attempt)){
+        skipped += answers.length;
+        issues.push({attemptId:attempt.id, reason:'invalid_timed_attempt'});
+        continue;
+      }
       const questions = [];
       answers.forEach((answer, answerIndex) => {
+        if(answer.omitted === true && answer.presented === false){
+          skipped++;
+          issues.push({attemptId:attempt.id, answerIndex, reason:'not_presented'});
+          return;
+        }
         const question = historicalQuestion(answer);
         if(question) questions.push(question);
         else{ skipped++; issues.push({attemptId:attempt.id, answerIndex, reason:'insufficient_content'}); }
@@ -529,6 +588,7 @@
       for(const key of ['score','total','pct']) if(own(item,key) && (!Number.isFinite(item[key]) || item[key] < 0)) throw new Error('invalid_database');
       if(own(item,'answers') && (!Array.isArray(item.answers) || item.answers.some(answer => !object(answer)))) throw new Error('invalid_database');
       if(own(item,'score') && own(item,'total') && item.score > item.total || own(item,'pct') && item.pct > 100) throw new Error('invalid_database');
+      if(!validTimedAttempt(item)) throw new Error('invalid_database');
     }
     for(const key of backupCollections){
       for(const item of result[key]) if(own(item,'id') && !text(item.id)) throw new Error('invalid_database');

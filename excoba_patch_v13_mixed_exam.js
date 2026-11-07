@@ -16,6 +16,28 @@
 
   const VERSION = '13.0';
 
+  const canInteract = () => window.NOA_EXAM_SHELL?.canInteract?.() !== false;
+
+  // Keep submitted renderer answers available for navigation to record before
+  // closing the renderer. A scheduled or flushed job can only run once and must
+  // still belong to the same question, session, and open deadline.
+  const pendingAnswerRecords = new Set();
+
+  function queueAnswerRecord(callback){
+    const answers = examAnswers, index = examIndex, question = examQueue[index];
+    const record = () => {
+      if(!pendingAnswerRecords.delete(record)) return;
+      if(answers === examAnswers && index === examIndex && question === examQueue[index] && canInteract()) callback();
+    };
+    pendingAnswerRecords.add(record);
+    setTimeout(record, 0);
+  }
+
+  function flushPendingAnswers(){
+    for(const record of Array.from(pendingAnswerRecords)) record();
+  }
+
+
 
   // =====================================
   // ESTADO
@@ -363,6 +385,12 @@
     }
 
 
+    // Validate a new timed configuration before replacing the current session.
+    // Recovery restores its saved deadline instead of applying the current UI.
+    if(!window.NOA_EXAM_RECOVERY?.state?.()?.recovering){
+      window.NOA_EXAM_SHELL?.configuration?.();
+    }
+
     ensureStyles();
 
 
@@ -586,6 +614,8 @@
 
   function recordDragAnswer(){
 
+    if(!canInteract()) return;
+
     if(
       !mixedMode
     ){
@@ -706,6 +736,8 @@
     // =================================
 
     examAnswers.push({
+
+      ...(window.NOA_EXAM_SHELL?.state?.().timing ? {presented:true} : {}),
 
       questionId:
         q.id || '',
@@ -921,10 +953,7 @@
           )
       ){
 
-        setTimeout(
-          recordDragAnswer,
-          0
-        );
+        queueAnswerRecord(recordDragAnswer);
 
         return;
 
@@ -941,6 +970,8 @@
             '#noaMixedContinue'
           )
       ){
+
+        if(!canInteract()) return;
 
         try{
 
@@ -1087,6 +1118,10 @@
     questionsFromBatch,
 
     answerMetadata,
+
+    queueAnswerRecord,
+
+    flushPendingAnswers,
 
     state
 

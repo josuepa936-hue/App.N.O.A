@@ -28,6 +28,7 @@
   }
 
   function creditFor(answer){
+    if(answer.omitted === true) return 0;
     return typeof answer.scoreFraction === 'number' && Number.isFinite(answer.scoreFraction)
       ? answer.scoreFraction
       : answer.ok ? 1 : 0;
@@ -38,6 +39,7 @@
   }
 
   function statusFor(answer){
+    if(answer.omitted === true) return '— Omitida';
     const credit = creditFor(answer);
     if(credit === 1) return '✓ Correcta';
     if(credit > 0 && credit < 1) return '◐ Parcial';
@@ -69,6 +71,9 @@
   }
 
   function answerDetail(answer, type){
+    if(answer.omitted === true){
+      return '<b>Omitida por vencimiento del plazo</b><br>Sin respuesta registrada · Crédito: 0%';
+    }
     if(type === 'single_select'){
       return `Tu respuesta: <b>${esc(optionText(
         answer, answer.selected, 'Sin respuesta registrada'
@@ -103,6 +108,19 @@
       percentage.textContent = `${percent(examScore, examQueue.length)}%`;
     }
 
+    const timing = window.NOA_EXAM_SHELL?.state?.()?.timing;
+    const omitted = examAnswers.filter(answer => answer.omitted === true).length;
+    if(timing?.version === 26 || omitted > 0){
+      const summary = document.createElement('p');
+      summary.id = 'noaTimedExamResultSummary';
+      summary.className = 'small';
+      const reason = timing?.finishReason === 'timeout' || omitted > 0
+        ? 'Examen cerrado por vencimiento del tiempo.' : 'Examen finalizado manualmente.';
+      summary.textContent = `${reason} Respondidas: ${examAnswers.length - omitted} · Omitidas: ${omitted}.`;
+      if(heading) heading.insertAdjacentElement('afterend',summary);
+      else box.prepend(summary);
+    }
+
     // Conservar las tarjetas existentes: Blueprint, Judge y explicación.
     const lists = box.querySelectorAll(':scope > .list');
     if(lists[0]){
@@ -132,6 +150,7 @@
         if(stem) stem.textContent = String(answer.question || '').replace(/\[\[[^\]]+\]\]/g, '_____');
       }
       card.dataset.noaResultType = type;
+      if(answer.omitted === true) card.dataset.noaResultStatus = 'omitted';
     });
     box.dataset.noaResultsEngine = VERSION;
   }
