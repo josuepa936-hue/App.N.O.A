@@ -21,8 +21,8 @@
   }
  }
  function finish(stats){stats.percent=stats.total>0&&stats.unknown===0?stats.credit/stats.maxCredit*100:null;return stats;}
- function aggregate(attempt,options={}){
-  const projection=normalizer.normalizeAttempt(attempt,options),overall=empty(),sections=new Map();
+ function aggregateProjection(projection){
+  const overall=empty(),sections=new Map();
   const bucket=(map,id,label)=>{if(!map.has(id))map.set(id,{id,label,stats:empty(),children:new Map()});return map.get(id);};
   for(const record of projection.records){
    const c=record.classification;
@@ -44,5 +44,6 @@
   return {version:'27.2',attemptId:projection.attemptId,stats:overall,sections:serialize(sections),issues:[...projection.issues],
    declaredTotal:projection.declaredTotal,complete:projection.completeness==='complete'&&overall.unknown===0};
  }
- return Object.freeze({version:'27.2',aggregate});
+ function aggregate(attempt,options={}){return aggregateProjection(normalizer.normalizeAttempt(attempt,options));}
+ return Object.freeze({version:'27.2',aggregate,aggregateProjection});
 });
