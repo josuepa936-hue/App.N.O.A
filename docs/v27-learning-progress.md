@@ -31,7 +31,7 @@ lista cobertura/advertencias y permite seleccionar dos intentos. Los técnicos s
 listan identificados pero se excluyen de gráfica y comparación. Los desconocidos
 pueden mostrar cambios descriptivos, siempre sin evidencia verificada de dominio.
 No se comparan porcentajes incompletos. No hay librerías nuevas ni persistencia
-nueva; las vistas se derivan tras recargar/restaurar y funcionan offline (v6-81).
+nueva; las vistas se derivan tras recargar/restaurar y funcionan offline (caché actual v6-83).
 
 ## Condiciones verificables y diagnóstico
 
@@ -70,10 +70,10 @@ un fallback de curso a oficial no es por sí mismo una contradicción.
 Los porcentajes se formatean solo en presentación: `75%`, `62.5%` o
 `No calculable`. No se redondean los créditos ni los datos de comparación.
 
-## Procedencia actual y modificación mínima futura (no implementada)
+## Procedencia y compatibilidad con v27.3B
 
 `commitCompletedExam()` en index.html guarda id, score, total, pct, fecha,
-difficultyStats, answers y, con v26, timing/finishReason. Actualmente NO declara
+difficultyStats, answers y, con v26, timing/finishReason. En v27.3A no declaraba
 `evidenceKind: 'student'` para nuevos intentos. No se deduce procedencia a partir
 de IDs, preguntas, ubicación en db o buenas puntuaciones de Judge.
 
@@ -82,11 +82,11 @@ Cualquier veto technicalTest/evidenceKind técnico, en intento o reactivo, preva
 y excluye el intento de comparaciones/gráfica para evitar muestras mixtas. Los desconocidos no
 aportan dominio; los históricos no se etiquetan ni se migran retrospectivamente.
 
-Si se autoriza después, la modificación mínima sería declarar procedencia en la
-creación de nuevos intentos, con contexto explícito de actividad del estudiante,
-y marcar los flujos técnicos de prueba por separado. Requeriría un contrato de
-origen y regresiones del guardado único/respaldos. Esta fase NO toca ese código,
-no añade campos persistentes ni presupone esa autorización.
+Desde v27.3B fase 1, el selector explícito del próximo examen permite declarar
+estudio o prueba técnica; sin declaración se guarda `unknown`. La declaración
+viaja con el checkpoint y el intento, sin migración de históricos. La evolución
+sigue siendo una lectura pura: no declara ni guarda procedencia por sí misma.
+El contrato y sus límites se describen en [v27-study-provenance.md](v27-study-provenance.md).
 
 ## Límites
 

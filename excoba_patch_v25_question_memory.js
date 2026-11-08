@@ -629,6 +629,7 @@
       else{
         const active = cleanBackupValue(raw.activeExam);
         if(!window.NOA_EXAM_RECOVERY?.validate?.(active)) throw new Error('invalid_active_exam');
+        if(!window.NOA_STUDY_PROVENANCE_V27.checkpointCompatible(active,result.attempts)) throw new Error('provenance_conflict');
         result.activeExam = active;
       }
     }
@@ -708,7 +709,7 @@
         if(!state.ok) return state;
         let academic;
         try{ academic = sanitizedAcademicDb(db); }
-        catch(error){ return {ok:false,error:['invalid_database','invalid_active_exam'].includes(error?.message) ? error.message : 'invalid_database'}; }
+        catch(error){ return {ok:false,error:['invalid_database','invalid_active_exam','provenance_conflict'].includes(error?.message) ? error.message : 'invalid_database'}; }
         const memory = clone(state.data);
         if(!validStore(memory)) return {ok:false,error:'invalid_memory'};
         return {ok:true,backup:{format:'noa-backup',version:1,db:academic,questionMemory:memory}};
@@ -716,7 +717,7 @@
       if(!result.ok) backupDiagnostic('backup_export',result.error,{rollbackFailed:!!result.rollbackFailed});
       return result;
     }catch(error){
-      const reason = ['invalid_database','invalid_active_exam'].includes(error?.message) ? error.message : 'backup_export_failed';
+      const reason = ['invalid_database','invalid_active_exam','provenance_conflict'].includes(error?.message) ? error.message : 'backup_export_failed';
       backupDiagnostic('backup_export',reason);
       return {ok:false,error:reason};
     }
@@ -739,7 +740,7 @@
         academic = sanitizedAcademicDb(source);
       }
     }catch(error){
-      const reason = ['invalid_database','invalid_active_exam'].includes(error?.message) ? error.message : 'invalid_backup';
+      const reason = ['invalid_database','invalid_active_exam','provenance_conflict'].includes(error?.message) ? error.message : 'invalid_backup';
       backupDiagnostic('backup_restore',reason);
       return {ok:false,error:reason};
     }

@@ -14,6 +14,7 @@
   const types = ['single_select','drag_classify','inline_select','drag_order'];
   const sectionLabels = {primary:'Primaria',secondary:'Secundaria',medicine:'Especialidad Medicina'};
   const field = (value = null, state = 'absent', sources = []) => ({value,state,sources});
+  const unknownEvidence = value => own(value,'evidenceKind') && !['student','technical_test'].includes(value.evidenceKind);
   const read = (value, key, path, valid = text) => !own(value,key) ? field()
     : value[key] == null ? field(null,'unknown',[path])
       : valid(value[key]) ? field(typeof value[key] === 'string' ? value[key].trim() : value[key],'known',[path])
@@ -118,7 +119,8 @@
     const classification = academic(a,options.catalog);
     const technical = options.evidenceKind === 'technical_test' || attempt.evidenceKind === 'technical_test' ||
       a.evidenceKind === 'technical_test' || attempt.technicalTest === true || a.technicalTest === true;
-    const evidenceKind = technical ? 'technical_test' : options.evidenceKind === 'student' ? 'student' : 'unknown';
+    const evidenceKind = technical ? 'technical_test' : options.evidenceKind === 'student' &&
+      !unknownEvidence(attempt) && !unknownEvidence(a) ? 'student' : 'unknown';
     const validReason = value => ['manual','timeout'].includes(value);
     const finishReason = combine([read(attempt,'finishReason','attempt.finishReason',validReason),read(attempt.timing,'finishReason','attempt.timing.finishReason',validReason)]);
     const presented = read(a,'presented','answer.presented',value => typeof value === 'boolean');
@@ -247,15 +249,30 @@
       }
       const existing = seen.get(id);
       existing.variants.push({input:attempt,index,value});
+      // Attempt declarations exist even when a historical copy has no answers.
+      const declarations = existing.variants.map(variant=>{
+        const declared = read(variant.input,'evidenceKind','attempts['+variant.index+'].evidenceKind',value=>['student','technical_test','unknown'].includes(value));
+        const technical = read(variant.input,'technicalTest','attempts['+variant.index+'].technicalTest',value=>typeof value==='boolean');
+        return {attemptIndex:variant.index,declared,technical,
+          evidenceKind:technical.value===true||declared.value==='technical_test'?'technical_test':declared.value==='student'&&!['invalid','unknown'].includes(technical.state)?'student':'unknown'};
+      });
+      const kinds = new Set(declarations.map(declaration=>declaration.evidenceKind));
+      const attemptProvenance = {evidenceKind:kinds.has('technical_test')?'technical_test':kinds.size===1&&kinds.has('student')?'student':'unknown',
+        state:kinds.size>1?'conflict':kinds.has('unknown')?'unknown':'known',declarations};
       const copies = [], provenance = [];
       for(const variant of existing.variants){
+        const technical = variant.input.technicalTest === true || variant.input.evidenceKind === 'technical_test';
         (Array.isArray(variant.input.answers) ? variant.input.answers : []).forEach((answer,answerIndex) => {
-          copies.push(object(answer) && (variant.input.technicalTest === true || variant.input.evidenceKind === 'technical_test')
-            ? {...answer,technicalTest:true} : answer);
+          copies.push(object(answer) && (technical || answer.technicalTest === true || answer.evidenceKind === 'technical_test')
+            ? {...answer,technicalTest:true} : object(answer) && unknownEvidence(variant.input)
+              ? {...answer,evidenceKind:'unknown'} : answer);
           provenance.push({attemptIndex:variant.index,answerIndex});
         });
       }
-      const projection = normalizeAttempt({...existing.variants[0].input,technicalTest:false,evidenceKind:undefined,answers:copies},options);
+      // Each copy carries its explicit veto; do not borrow the first attempt's declaration.
+      const merged = {...existing.variants[0].input,technicalTest:attemptProvenance.evidenceKind==='technical_test',evidenceKind:attemptProvenance.evidenceKind,answers:copies};
+      const projection = normalizeAttempt(merged,options);
+      projection.attemptProvenance = attemptProvenance;
       const variantIssues = existing.variants.flatMap(variant => variant.value.issues);
       let conflict = false;
       for(const key of ['at','declaredTotal','reportedScore']){
