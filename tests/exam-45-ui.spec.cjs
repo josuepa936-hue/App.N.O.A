@@ -379,6 +379,8 @@ test('v25 completa 45 posiciones con crédito parcial, revisión, recuperación,
   await expect(page.locator('#noaExamMap')).toHaveCount(0);
   await answer(page, queue[0], 'partial');
   for (let index = 1; index <= 4; index++) { await navigate(page, index); await answer(page, queue[index]); }
+  // Submit records interactive answers on a deferred task; await that boundary.
+  await expect.poll(() => page.evaluate(() => examAnswers.length)).toBe(5);
   expect(await page.evaluate(() => examScore)).toBe(4.5);
   const classify = queue.findIndex(question => question.interactionType === 'drag_classify');
   await navigate(page, classify);
@@ -491,7 +493,7 @@ test('v25 ofrece estado accesible y permite confirmar o cancelar mediante teclad
 
 test.describe('v25 UI45 con Service Worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('v25 UI45 se almacena en caché v77 aislada y NOA conserva el acceso offline', async ({ page, context }) => {
+  test('v25 UI45 se almacena en caché v79 aislada y NOA conserva el acceso offline', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cache = await page.evaluate(async () => {
@@ -499,7 +501,7 @@ test.describe('v25 UI45 con Service Worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, ui: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_ui.js', scope).href) };
     });
-    expect(cache.name).toMatch(/:v6-77$/); expect(cache.ui).toBe(true);
+    expect(cache.name).toMatch(/:v6-79$/); expect(cache.ui).toBe(true);
     await context.setOffline(true); await page.reload();
     await page.waitForFunction(() => !!window.NOA_EXAM_UI_V25 && !!window.NOA_RESULTS_ENGINE);
     await page.locator('#nav button[data-page="exam"]').click();
