@@ -340,7 +340,7 @@ test.describe('normalizador disponible offline con SW real',()=>{
       const names=(await caches.keys()).filter(name=>name.startsWith('noa-mobile:'+encodeURIComponent(scope)+':'));
       return {names,asset:!!await (await caches.open(names[0])).match(new URL('excoba_patch_v27_results_normalization.js',scope).href)};
     });
-    expect(cached.names).toHaveLength(1);expect(cached.names[0]).toMatch(/:v6-83$/);expect(cached.asset).toBe(true);
+    expect(cached.names).toHaveLength(1);expect(cached.names[0]).toMatch(/:v6-84$/);expect(cached.asset).toBe(true);
     await context.setOffline(true);await page.reload();await page.waitForFunction(()=>!!window.NOA_RESULTS_NORMALIZATION_V27);
     expect(await page.evaluate(()=>NOA_RESULTS_NORMALIZATION_V27.normalizeAttempt({answers:[{ok:false}]}).records[0].credit.value)).toBe(0);
   });
