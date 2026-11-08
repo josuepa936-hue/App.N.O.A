@@ -452,7 +452,7 @@ for (const operation of ['reset', 'restore']) {
 
 test.describe('integración de memoria con Service Worker real', () => {
   test.use({ serviceWorkers: 'allow' });
-  test('examen y respaldo con memoria funcionan después de recargar offline con caché v75', async ({ page, context }) => {
+  test('examen y respaldo con memoria funcionan después de recargar offline con caché v77', async ({ page, context }) => {
     await page.evaluate(() => navigator.serviceWorker.ready);
     await page.waitForFunction(() => !!navigator.serviceWorker.controller);
     const cached = await page.evaluate(async () => {
@@ -460,7 +460,7 @@ test.describe('integración de memoria con Service Worker real', () => {
       const names = (await caches.keys()).filter(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { names, memory: !!await (await caches.open(names[0])).match(new URL('excoba_patch_v25_question_memory.js', scope).href) };
     });
-    expect(cached.names).toHaveLength(1); expect(cached.names[0]).toMatch(/:v6-75$/); expect(cached.memory).toBe(true);
+    expect(cached.names).toHaveLength(1); expect(cached.names[0]).toMatch(/:v6-77$/); expect(cached.memory).toBe(true);
     await context.setOffline(true); await page.reload();
     await page.waitForFunction(() => !!window.NOA_QUESTION_MEMORY_V25_2);
     await installAttemptSpy(page); await start(page, memoryQuestions); await answerAll(page, memoryQuestions); await finish(page);
