@@ -269,3 +269,178 @@ test.describe('offline',()=>{
   expect((await expire(page)).attempts[0].evidenceKind).toBe('student');
  });
 });
+
+for(const kind of ['technical_test','unknown','student'])for(const reverse of [false,true])test('copia vacía '+kind+' '+(reverse?'después':'antes')+' conserva procedencia y créditos',async({page})=>{
+ const result=await page.evaluate(({kind,reverse})=>{
+  const full={id:'same',evidenceKind:'student',total:2,score:.5,finishReason:'timeout',answers:[
+   {questionId:'q',scoreFraction:.5,ok:false},
+   {questionId:'omitted',omitted:true,scoreFraction:0,ok:false,omissionReason:'timeout'}]};
+  const empty={...full,evidenceKind:kind,answers:[]};
+  const variants=reverse?[full,empty]:[empty,full];
+  const freeze=value=>{if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
+  freeze(variants);const before=JSON.stringify(variants);
+  const first=NOA_RESULTS_NORMALIZATION_V27.normalizeHistory(variants,{evidenceKind:'student'});
+  const second=NOA_RESULTS_NORMALIZATION_V27.normalizeHistory(variants,{evidenceKind:'student'});
+  const projection=first.attempts[0],stats=NOA_ACADEMIC_STATS_V27.aggregateProjection(projection).stats;
+  projection.attemptProvenance.declarations[0].declared.value='caller change';
+  return {projection:second.attempts[0],stats,same:JSON.stringify(second)===JSON.stringify(NOA_RESULTS_NORMALIZATION_V27.normalizeHistory(variants,{evidenceKind:'student'})),unchanged:before===JSON.stringify(variants)};
+ },{kind,reverse});
+ expect(result.projection.records).toHaveLength(2);
+ expect(result.stats).toMatchObject({total:2,partial:1,omitted:1,credit:.5,incorrect:0});
+ expect(result.stats.domain.answered).toBe(kind==='student'?1:0);
+ expect(result.projection.attemptProvenance.evidenceKind).toBe(kind);
+ expect(result.projection.attemptProvenance.state).toBe(kind==='student'?'known':'conflict');
+ expect(result.projection.attemptProvenance.declarations.map(d=>d.attemptIndex)).toEqual([0,1]);
+ expect(result.projection.attemptProvenance.declarations[0].declared.sources).toEqual(['attempts[0].evidenceKind']);
+ expect(result.same&&result.unchanged).toBe(true);
+});
+
+test('copias completas compatibles no duplican créditos; veto técnico por reactivo se conserva',async({page})=>{
+ const result=await page.evaluate(()=>{
+  const attempt={id:'same',evidenceKind:'student',total:2,score:1.5,answers:[
+   {questionId:'q',scoreFraction:.5,ok:false,evidenceKind:'technical_test'},
+   {questionId:'q2',scoreFraction:1,ok:true}]};
+  const projection=NOA_RESULTS_NORMALIZATION_V27.normalizeHistory([attempt,structuredClone(attempt)],{evidenceKind:'student'}).attempts[0];
+  return {projection,stats:NOA_ACADEMIC_STATS_V27.aggregateProjection(projection).stats};
+ });
+ expect(result.projection.records).toHaveLength(2);
+ expect(result.stats).toMatchObject({credit:1.5,total:2,domain:{credit:1,maxCredit:1,answered:1}});
+ expect(result.projection.records[0].evidenceKind).toBe('technical_test');
+});
+
+async function partialResult(page,kind){
+ await choose(page,kind);await startMixed(page);await navigateTimed(page,1);
+ await answerTimed(page,timedQuestions[1],'partial');
+ const checkpoint=await page.evaluate(()=>{NOA_EXAM_RECOVERY.save();return structuredClone(db.activeExam);});
+ await expire(page);return checkpoint;
+}
+async function scoreAndDomain(page){
+ return page.evaluate(()=>{
+  const attempt=db.attempts[0],kind=NOA_STUDY_PROVENANCE_V27.kind(attempt);
+  return {kind,score:attempt.score,total:attempt.total,answers:attempt.answers,
+   stats:NOA_ACADEMIC_STATS_V27.aggregate(attempt,{evidenceKind:kind}).stats};
+ });
+}
+
+for(const encoding of ['student','unknown','technical_test','legacy-unknown','legacy-technical','technical-kind-only'])test('resultado duradero compatible se reutiliza: '+encoding,async({page})=>{
+ const kind=encoding==='legacy-unknown'?'unknown':encoding==='legacy-technical'||encoding==='technical-kind-only'?'technical_test':encoding;
+ await partialResult(page,kind);
+ const result=await page.evaluate(async encoding=>{
+  const raw=JSON.parse(localStorage.getItem(KEY));
+  if(encoding.startsWith('legacy-'))delete raw.attempts[0].evidenceKind;
+  if(encoding==='technical-kind-only')delete raw.attempts[0].technicalTest;
+  localStorage.setItem(KEY,JSON.stringify(raw));
+  const stored=localStorage.getItem(KEY),original=JSON.stringify(raw.attempts[0]);
+  const live=db.attempts[0],liveBefore=JSON.stringify(live);
+  noaCompletedExamCommits.delete(examAnswers);
+  const attempt=await commitCompletedExam({reason:'timeout'});
+  return {same:original===JSON.stringify(attempt),stored:stored===localStorage.getItem(KEY),
+   count:db.attempts.length,originalLiveIntact:liveBefore===JSON.stringify(live)};
+ },encoding);
+ expect(result).toEqual({same:true,stored:true,count:1,originalLiveIntact:true});
+ const scored=await scoreAndDomain(page);
+ expect(scored).toMatchObject({kind,score:.5,total:4,stats:{partial:1,omitted:3,credit:.5}});
+ expect(scored.stats.domain.answered).toBe(kind==='student'?1:0);
+});
+
+for(const kind of ['student','unknown','technical_test'])test('respaldo con checkpoint redundante compatible: '+kind,async({page})=>{
+ const checkpoint=await partialResult(page,kind);
+ const backup=await page.evaluate(()=>NOA_QUESTION_MEMORY_V25_2.createBackup());
+ expect(backup.ok).toBe(true);backup.backup.db.activeExam=checkpoint;
+ const expected=JSON.stringify(backup.backup.db.attempts);
+ const restored=await page.evaluate(b=>NOA_QUESTION_MEMORY_V25_2.restoreBackup(b),backup.backup);
+ expect(restored.ok).toBe(true);
+ expect(await page.evaluate(()=>JSON.stringify(db.attempts))).toBe(expected);
+ expect((await current(page)).checkpoint).toBeUndefined();
+ const scored=await scoreAndDomain(page);
+ expect(scored).toMatchObject({score:.5,stats:{credit:.5,partial:1,omitted:3}});
+ expect(scored.stats.domain.answered).toBe(kind==='student'?1:0);
+});
+
+for(const incoming of ['technical_test','unknown'])test('respaldo contradictorio se rechaza antes de escribir: '+incoming,async({page})=>{
+ const checkpoint=await partialResult(page,'student');checkpoint.evidenceKind=incoming;
+ if(incoming==='technical_test')checkpoint.technicalTest=true;
+ const backup=await page.evaluate(()=>NOA_QUESTION_MEMORY_V25_2.createBackup());backup.backup.db.activeExam=checkpoint;
+ const result=await page.evaluate(async b=>{
+  const before=JSON.stringify(db),storage=JSON.stringify({...localStorage}),input=JSON.stringify(b);
+  const restored=await NOA_QUESTION_MEMORY_V25_2.restoreBackup(b);
+  return {restored,unchanged:before===JSON.stringify(db)&&storage===JSON.stringify({...localStorage}),input:input===JSON.stringify(b)};
+ },backup.backup);
+ expect(result).toMatchObject({restored:{ok:false,error:'provenance_conflict'},unchanged:true,input:true});
+ const scored=await scoreAndDomain(page);
+ expect(scored).toMatchObject({score:.5,kind:'student',stats:{credit:.5,domain:{answered:1}}});
+});
+
+test('recarga conserva checkpoint contradictorio y resultado original',async({page})=>{
+ const checkpoint=await partialResult(page,'student');checkpoint.evidenceKind='technical_test';checkpoint.technicalTest=true;
+ const expected=await page.evaluate(cp=>{db.activeExam=cp;localStorage.setItem(KEY,JSON.stringify(db));return JSON.stringify(db.attempts);},checkpoint);
+ await page.reload();await page.waitForFunction(()=>!!window.NOA_STUDY_PROVENANCE_V27);
+ await page.clock.runFor(200);await page.locator('#nav button[data-page="exam"]').click();
+ expect(await page.evaluate(()=>JSON.stringify(db.attempts))).toBe(expected);
+ expect((await current(page)).checkpoint).toMatchObject({evidenceKind:'technical_test',technicalTest:true});
+ expect(await page.evaluate(()=>NOA_EXAM_RECOVERY.recover())).toBe(false);
+ expect((await scoreAndDomain(page)).stats).toMatchObject({credit:.5,domain:{answered:1}});
+});
+
+test('commit rechaza contradicción de procedencia sin cambiar datos ni créditos',async({page})=>{
+ await partialResult(page,'student');
+ const result=await page.evaluate(async()=>{
+  const stored=JSON.parse(localStorage.getItem(KEY));stored.attempts[0].evidenceKind='technical_test';stored.attempts[0].technicalTest=true;
+  localStorage.setItem(KEY,JSON.stringify(stored));noaCompletedExamCommits.delete(examAnswers);
+  const before=JSON.stringify({db,examAnswers,examScore}),raw=localStorage.getItem(KEY);
+  let error;try{await commitCompletedExam({reason:'timeout'});}catch(e){error=e.message;}
+  return {error,unchanged:before===JSON.stringify({db,examAnswers,examScore})&&raw===localStorage.getItem(KEY),
+   storedStats:NOA_ACADEMIC_STATS_V27.aggregate(stored.attempts[0],{evidenceKind:'student'}).stats};
+ });
+ expect(result).toMatchObject({error:'provenance_conflict',unchanged:true,storedStats:{credit:.5,domain:{answered:0}}});
+});
+
+test('cierre asíncrono pendiente no hereda la declaración de otra sesión',async({page})=>{
+ await choose(page,'student');await startMixed(page);await navigateTimed(page,1);await answerTimed(page,timedQuestions[1],'partial');
+ await page.evaluate(()=>{
+  const record=NOA_QUESTION_MEMORY_V25_2.recordSavedAttempt;
+  NOA_QUESTION_MEMORY_V25_2.recordSavedAttempt=(...args)=>new Promise(resolve=>{window.releaseProvenanceMemory=()=>record(...args).then(resolve);});
+  const deadline=NOA_EXAM_SHELL.state().timing.deadlineAt; // No wait before taking the completion snapshot.
+  window.pendingProvenanceDeadline=deadline;
+ });
+ const deadline=await page.evaluate(()=>pendingProvenanceDeadline);await page.clock.setSystemTime(new Date(deadline+1));
+ await page.evaluate(()=>{window.pendingProvenanceClose=NOA_EXAM_SHELL.expire();});
+ await choose(page,'technical_test');
+ await page.evaluate(queue=>NOA_MIXED_EXAM.start(queue,'Nueva prueba técnica'),timedQuestions);
+ expect((await current(page)).context.evidenceKind).toBe('technical_test');
+ await page.evaluate(async()=>{await releaseProvenanceMemory();await pendingProvenanceClose;});
+ expect((await current(page)).attempts).toHaveLength(1);
+ expect((await scoreAndDomain(page))).toMatchObject({kind:'student',score:.5,stats:{partial:1,omitted:3,domain:{answered:1}}});
+ expect((await current(page)).context.evidenceKind).toBe('technical_test');
+});
+
+test.describe('reconciliación offline',()=>{
+ test.use({serviceWorkers:'allow'});
+ test('checkpoint compatible ya guardado se consume offline sin segundo intento',async({page,context})=>{
+  const checkpoint=await partialResult(page,'student');
+  const expected=await page.evaluate(cp=>{db.activeExam=cp;localStorage.setItem(KEY,JSON.stringify(db));return JSON.stringify(db.attempts);},checkpoint);
+  await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
+  await context.setOffline(true);await page.reload();await page.waitForFunction(()=>!!window.NOA_STUDY_PROVENANCE_V27);
+  await page.clock.runFor(200);await page.locator('#nav button[data-page="exam"]').click();
+  expect(await page.evaluate(()=>JSON.stringify(db.attempts))).toBe(expected);
+  expect((await current(page)).checkpoint).toBeUndefined();
+  expect((await current(page)).attempts).toHaveLength(1);
+  expect((await scoreAndDomain(page))).toMatchObject({score:.5,stats:{partial:1,omitted:3,domain:{answered:1}}});
+ });
+});
+
+for(const encoding of ['technical_test','legacy-technical'])test('commit considera todas las copias persistidas: '+encoding,async({page})=>{
+ await partialResult(page,'unknown');
+ const result=await page.evaluate(async encoding=>{
+  const stored=JSON.parse(localStorage.getItem(KEY)),copy=structuredClone(stored.attempts[0]);
+  copy.technicalTest=true;
+  if(encoding==='legacy-technical')delete copy.evidenceKind;else copy.evidenceKind='technical_test';
+  stored.attempts.push(copy);localStorage.setItem(KEY,JSON.stringify(stored));
+  noaCompletedExamCommits.delete(examAnswers);
+  const before=localStorage.getItem(KEY),live=JSON.stringify(db);
+  let error;try{await commitCompletedExam({reason:'timeout'});}catch(e){error=e.message;}
+  const projection=NOA_RESULTS_NORMALIZATION_V27.normalizeHistory(stored.attempts,{evidenceKind:'student'}).attempts[0];
+  return {error,unchanged:before===localStorage.getItem(KEY)&&live===JSON.stringify(db),stats:NOA_ACADEMIC_STATS_V27.aggregateProjection(projection).stats};
+ },encoding);
+ expect(result).toMatchObject({error:'provenance_conflict',unchanged:true,stats:{total:4,credit:.5,partial:1,omitted:3,domain:{answered:0}}});
+});

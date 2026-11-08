@@ -43,5 +43,19 @@
       (!own(value,'technicalTest') || typeof value.technicalTest === 'boolean');
   }
 
-  window.NOA_STUDY_PROVENANCE_V27 = Object.freeze({version:'1',kind,begin,capture,restore,valid});
+  function reconcile(saved,incoming){
+    // Absence is legacy unknown, never an implicit student declaration.
+    // Equivalent technical encodings retain the durable JSON unchanged.
+    const compatible = valid(saved) && valid(incoming) && kind(saved) === kind(incoming);
+    return {compatible,savedKind:kind(saved),incomingKind:kind(incoming),
+      error:compatible?null:'provenance_conflict'};
+  }
+
+  function checkpointCompatible(snapshot,attempts){
+    const id = snapshot?.clock?.timing?.attemptId;
+    return !id || attempts.filter(attempt=>attempt.id===id)
+      .every(attempt=>reconcile(attempt,snapshot).compatible);
+  }
+
+  window.NOA_STUDY_PROVENANCE_V27 = Object.freeze({version:'1',kind,begin,capture,restore,valid,reconcile,checkpointCompatible});
 })();

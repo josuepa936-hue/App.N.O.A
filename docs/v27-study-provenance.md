@@ -42,16 +42,29 @@ el mutex por respuestas y la identidad de cierre de v26.
 
 - No se migran ni etiquetan intentos antiguos. Ausencia o valores inválidos se
   muestran como desconocidos. Un checkpoint antiguo no hereda la selección UI.
-- Los respaldos existentes ya preservan campos académicos aditivos; no cambia
-  su formato ni se modifica el módulo de memoria. Se verifican exportación y
-  restauración de examen activo e intentos completados.
+- Los respaldos conservan su formato. Antes de escribir, el módulo de memoria
+  comprueba la procedencia del checkpoint frente a todos los resultados del
+  mismo ID. Un conflicto devuelve `provenance_conflict` sin modificar los datos
+  locales ni el respaldo. La recuperación también conserva ambos registros si
+  ya existe un conflicto local; no descarta el checkpoint por el ID solamente.
 - Un resultado durable anterior sin `evidenceKind` puede reconciliarse con una
   sesión desconocida sin reescribir su JSON. Una nueva declaración de estudio
   no se considera equivalente a la ausencia de procedencia en ese resultado.
+  `technicalTest: true` sin `evidenceKind` y `evidenceKind: 'technical_test'`
+  representan el mismo veto. `reconcile()` compara esa semántica antes de la
+  comparación exacta de los demás datos; fechas, respuestas y créditos deben
+  coincidir y se reutiliza el JSON duradero. Un checkpoint redundante compatible
+  se consume con éxito, sin crear un segundo intento.
 - En v27.1 una procedencia explícita desconocida/inválida veta la opción
   `evidenceKind: 'student'`, también al deduplicar copias. Los históricos sin
   campo conservan el contrato anterior: solo un contexto explícito del llamador
-  puede habilitar evidencia; panel y evolución los mantienen desconocidos.
+  puede habilitar evidencia en la normalización individual; panel y evolución
+  los mantienen desconocidos. Combinar copias exige declaraciones coherentes.
+  Al combinar copias, la procedencia se resuelve entre todas ellas, incluso si
+  una carece de respuestas. Un veto técnico del intento excluye todo el conjunto;
+  una copia desconocida impide elevarlo a estudiante. `attemptProvenance` en la
+  proyección conserva las declaraciones, estados y rutas de origen de cada copia.
+  Esta información no se escribe en los originales ni cambia los créditos.
 - Las sesiones nuevas con un veto técnico reciben la marca en todo el intento,
   que normalización y panel ya excluyen del dominio. Los históricos mixtos sin
   marca técnica global conservan su exclusión individual por respuesta;
@@ -66,4 +79,4 @@ contenido de las preguntas. No registra retrospectivamente configuración tempor
 ni habilita comparaciones con condiciones insuficientes. No añade recomendaciones,
 ni cambia Judge, Calibrator, puntuación o distribución de preguntas.
 
-Los recursos se incluyen en ASSETS, con caché aislada v6-82.
+Los recursos se incluyen en ASSETS, con caché aislada v6-83.

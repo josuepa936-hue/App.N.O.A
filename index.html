@@ -1428,6 +1428,12 @@ async function commitCompletedExam(options = {}){
     if(durable !== null && (typeof durable !== 'object' || Array.isArray(durable) ||
       !Array.isArray(durable.attempts))) throw new Error('El almacenamiento del intento no es válido.');
   }
+  const sessionProvenance = window.NOA_STUDY_PROVENANCE_V27?.capture(sessionAnswers,examQueue) || {evidenceKind:'unknown'};
+  const durableMatches = timing ? (durable?.attempts || []).filter(item => item.id === timing.attemptId) : [];
+  const durableAttempt = durableMatches[0];
+  if(durableMatches.some(item => !window.NOA_STUDY_PROVENANCE_V27.reconcile(item,sessionProvenance).compatible)){
+    throw new Error('provenance_conflict');
+  }
   const expired = timing && (timing.finishReason === 'timeout' ||
     timing.status === 'open' && Date.now() >= timing.deadlineAt);
   if(options?.reason === 'timeout' && !expired && timing?.status !== 'closing') return null;
@@ -1488,18 +1494,14 @@ async function commitCompletedExam(options = {}){
   let attempt = {id:timing?.attemptId || uid(), score:examScore, total:questions.length, pct,
     at:finalTiming ? new Date(finalTiming.closedAt).toISOString() : new Date().toISOString(),
     difficultyStats, answers,
-    ...(window.NOA_STUDY_PROVENANCE_V27?.capture(sessionAnswers,questions) || {evidenceKind:'unknown'}),
+    ...sessionProvenance,
     ...(finalTiming ? {timing:finalTiming,finishReason:finalTiming.finishReason} : {})};
   const stable = value => JSON.stringify(value,(_,item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key,item[key]])) : item);
-  const durableAttempt = timing && durable?.attempts?.find(item => item.id === timing.attemptId);
-  // A legacy durable result may predate explicit provenance. Reuse its JSON;
-  // unknown is compatible with absence, never with a new student declaration.
-  const comparableAttempt = {...attempt};
-  if(durableAttempt && !Object.prototype.hasOwnProperty.call(durableAttempt,'evidenceKind') && attempt.evidenceKind === 'unknown'){
-    delete comparableAttempt.evidenceKind;
-  }
-  if(durableAttempt && stable(durableAttempt) !== stable(comparableAttempt)){
+  // Provenance has been checked independently. Compare every other fact exactly;
+  // equivalent legacy encodings never authorize rewriting the durable result.
+  const academicFacts = value => stable({...value,evidenceKind:undefined,technicalTest:undefined});
+  if(durableAttempt && academicFacts(durableAttempt) !== academicFacts(attempt)){
     throw new Error('El identificador del cierre ya pertenece a otro resultado.');
   }
   if(timing && !durableAttempt && sessionDatabase.attempts.some(item => item.id === timing.attemptId)){
@@ -1519,12 +1521,13 @@ async function commitCompletedExam(options = {}){
     // Reconcile only the fields owned by this commit, retaining the saved JSON.
     attempt = durableAttempt;
     const live = attemptsReference.find(item => item.id === attempt.id);
-    if(live && stable(live) !== stable(attempt)){
+    if(live && (!window.NOA_STUDY_PROVENANCE_V27.reconcile(attempt,live).compatible || academicFacts(live) !== academicFacts(attempt))){
       noaCompletedExamCommits.delete(sessionAnswers);
       rejectCommit(new Error('El intento guardado no coincide con la sesión.'));
       return completion;
     }
     if(!live) attemptsReference.push(attempt);
+    else attemptsReference[attemptsReference.indexOf(live)] = attempt;
     const activityIds = new Set(activityReference.map(item => item.id));
     const missing = (durable.activity || []).filter(item => !activityIds.has(item.id));
     if(missing.length) sessionDatabase.activity = [...missing,...activityReference].slice(0,50);

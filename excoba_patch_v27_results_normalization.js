@@ -249,6 +249,16 @@
       }
       const existing = seen.get(id);
       existing.variants.push({input:attempt,index,value});
+      // Attempt declarations exist even when a historical copy has no answers.
+      const declarations = existing.variants.map(variant=>{
+        const declared = read(variant.input,'evidenceKind','attempts['+variant.index+'].evidenceKind',value=>['student','technical_test','unknown'].includes(value));
+        const technical = read(variant.input,'technicalTest','attempts['+variant.index+'].technicalTest',value=>typeof value==='boolean');
+        return {attemptIndex:variant.index,declared,technical,
+          evidenceKind:technical.value===true||declared.value==='technical_test'?'technical_test':declared.value==='student'&&!['invalid','unknown'].includes(technical.state)?'student':'unknown'};
+      });
+      const kinds = new Set(declarations.map(declaration=>declaration.evidenceKind));
+      const attemptProvenance = {evidenceKind:kinds.has('technical_test')?'technical_test':kinds.size===1&&kinds.has('student')?'student':'unknown',
+        state:kinds.size>1?'conflict':kinds.has('unknown')?'unknown':'known',declarations};
       const copies = [], provenance = [];
       for(const variant of existing.variants){
         const technical = variant.input.technicalTest === true || variant.input.evidenceKind === 'technical_test';
@@ -260,9 +270,9 @@
         });
       }
       // Each copy carries its explicit veto; do not borrow the first attempt's declaration.
-      const merged = {...existing.variants[0].input,technicalTest:false,answers:copies};
-      delete merged.evidenceKind;
+      const merged = {...existing.variants[0].input,technicalTest:attemptProvenance.evidenceKind==='technical_test',evidenceKind:attemptProvenance.evidenceKind,answers:copies};
       const projection = normalizeAttempt(merged,options);
+      projection.attemptProvenance = attemptProvenance;
       const variantIssues = existing.variants.flatMap(variant => variant.value.issues);
       let conflict = false;
       for(const key of ['at','declaredTotal','reportedScore']){

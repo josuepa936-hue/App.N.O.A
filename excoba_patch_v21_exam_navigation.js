@@ -376,9 +376,10 @@
       if(!validRecovery(snapshot)) throw new Error('Checkpoint incompatible');
       const timing = snapshot.clock?.timing;
       if(timing && db.attempts.some(attempt => attempt.id === timing.attemptId)){
+        if(!window.NOA_STUDY_PROVENANCE_V27.checkpointCompatible(snapshot,db.attempts)) throw new Error('provenance_conflict');
         delete db.activeExam;
         localStorage.setItem(KEY,JSON.stringify(db));
-        return false;
+        return true;
       }
       recoveringSession = true;
       recoverySnapshot = snapshot;
@@ -393,7 +394,9 @@
         ? 'Examen recuperado. Se está completando su cierre.' : 'Examen recuperado. Puedes continuar.');
       return true;
     }catch(err){
-      if(typeof toast === 'function') toast('No pude recuperar el examen guardado. Puedes iniciar otro.');
+      if(typeof toast === 'function') toast(err?.message==='provenance_conflict'
+        ? 'Conflicto de procedencia entre el examen guardado y su resultado. Se conservaron ambos registros.'
+        : 'No pude recuperar el examen guardado. Puedes iniciar otro.');
       return false;
     }finally{
       recoverySnapshot = null;

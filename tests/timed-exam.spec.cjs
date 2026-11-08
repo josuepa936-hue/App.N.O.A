@@ -462,7 +462,7 @@ test.describe('cronómetro con Service Worker real', () => {
       const scope = (await navigator.serviceWorker.getRegistration()).scope;
       return (await caches.keys()).filter(name => name.startsWith('noa-mobile:' + encodeURIComponent(scope) + ':'));
     });
-    expect(names).toHaveLength(1); expect(names[0]).toMatch(/:v6-82$/);
+    expect(names).toHaveLength(1); expect(names[0]).toMatch(/:v6-83$/);
   });
 });
 

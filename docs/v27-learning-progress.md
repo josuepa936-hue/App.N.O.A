@@ -31,7 +31,7 @@ lista cobertura/advertencias y permite seleccionar dos intentos. Los técnicos s
 listan identificados pero se excluyen de gráfica y comparación. Los desconocidos
 pueden mostrar cambios descriptivos, siempre sin evidencia verificada de dominio.
 No se comparan porcentajes incompletos. No hay librerías nuevas ni persistencia
-nueva; las vistas se derivan tras recargar/restaurar y funcionan offline (caché actual v6-82).
+nueva; las vistas se derivan tras recargar/restaurar y funcionan offline (caché actual v6-83).
 
 ## Condiciones verificables y diagnóstico
 
