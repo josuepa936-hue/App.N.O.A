@@ -98,3 +98,102 @@ test.describe('offline',()=>{test.use({serviceWorkers:'allow'});test('motor disp
  await page.reload();await page.waitForFunction(()=>!!window.NOA_STUDY_RECOMMENDATIONS_V27);
  expect(await page.evaluate(()=>NOA_STUDY_RECOMMENDATIONS_V27.build([],{referenceDate:'2026-06-20T12:00:00Z',catalog:NOA_ACADEMIC_RESULTS_V27.catalog()}).recommendations)).toEqual([]);
 });});
+
+for(const [credits,priority,interval] of [
+ [[0,0],'reforzar',1],[[0,.5],'reforzar',1],[[.5,.5],'reforzar',1],[[1,.5],'practicar',3],[[1,1],'repasar',7]
+])test('dificultad conjunta '+JSON.stringify(credits),async({page})=>{
+ const r=await page.evaluate(credits=>{
+  recHistory=recHistory.map(a=>recAttempt(a.id,credits,a.at));return recs().recommendations[0];
+ },credits);
+ expect(r.priority).toBe(priority);expect(r.review.intervalDays).toBe(interval);
+ expect(r.evidence).toMatchObject({credit:2*(credits[0]+credits[1]),responses:4,distinctAttempts:2,distinctQuestions:4,quality:'sufficient'});
+});
+
+test('cada mejora individual conserva o reduce urgencia y ranking y no acorta repaso',async({page})=>{
+ const result=await page.evaluate(()=>{
+  const levels=[0,.5,1],order={evaluar:0,repasar:1,practicar:2,reforzar:3},failures=[];
+  let checks=0;
+  for(const policy of [{},{weights:{errors:1,partials:1},intervals:{reforzar:2,practicar:4,repasar:9}},{minResponses:5}]){
+   const recommend=values=>NOA_STUDY_RECOMMENDATIONS_V27.build([
+    recAttempt('a',values.slice(0,2)),recAttempt('b',values.slice(2),'2026-06-02T12:00:00Z')
+   ],{...recOptions,policy}).recommendations[0];
+   for(let n=0;n<81;n++){
+    const values=[0,1,2,3].map(i=>levels[Math.floor(n/(3**i))%3]);
+    const before=recommend(values);
+    for(let i=0;i<4;i++)if(values[i]<1){
+     const improved=[...values];improved[i]=values[i]===0?.5:1;
+     const after=recommend(improved);checks++;
+     if(order[after.priority]>order[before.priority]||after.review.intervalDays<before.review.intervalDays||after.rank.score>before.rank.score+1e-9||after.review.dueAt<before.review.dueAt)failures.push({values,improved,before,after});
+    }
+   }
+  }
+  return {checks,failures};
+ });
+ expect(result.checks).toBe(648);expect(result.failures).toEqual([]);
+});
+
+test('ranking ordena primero categoría; créditos y fechas originales intactos',async({page})=>{
+ const result=await page.evaluate(()=>{
+  recHistory.forEach(a=>a.at='2026-06-19T12:00:00Z');
+  const favorable=[recAttempt('c',[1,1]),recAttempt('d',[1,1])];
+  favorable.forEach(a=>a.answers.forEach(q=>q.syllabusCode='1.1.2'));recHistory.push(...favorable);
+  const before=JSON.stringify(recHistory);
+  const result=NOA_STUDY_RECOMMENDATIONS_V27.build(recHistory,{...recOptions,policy:{weights:{overdue:100}}});
+  return {result,same:before===JSON.stringify(recHistory)};
+ });
+ expect(result.result.recommendations.map(r=>r.priority)).toEqual(['reforzar','repasar']);
+ expect(result.result.recommendations[1].rank.score).toBeGreaterThan(result.result.recommendations[0].rank.score);
+ expect(result.same).toBe(true);
+});
+
+for(const mode of ['invalid','absent','unknown','conflict','matching'])test('admisibilidad de formato: '+mode,async({page})=>{
+ const result=await page.evaluate(mode=>{
+  recHistory=recHistory.map(a=>recAttempt(a.id,[.5,.5],a.at));
+  const q=recHistory[0].answers[0];
+  if(mode==='invalid')q.interactionType='invented';
+  if(mode==='absent')delete q.interactionType;
+  if(mode==='unknown')q.interactionType=null;
+  if(['conflict','matching'].includes(mode)){
+   q.interactionType='drag_classify';
+   recHistory[0].answers.push({...q,interactionType:mode==='conflict'?'inline_select':'drag_classify'});
+  }
+  const before=JSON.stringify(recHistory),result=recs();
+  return {result,same:before===JSON.stringify(recHistory)};
+ },mode);
+ const accepted=mode==='matching';
+ expect(result.result.excluded).toBe(accepted?0:1);
+ expect(result.result.recommendations[0]).toMatchObject({priority:accepted?'reforzar':'evaluar',evidence:{responses:accepted?4:3,credit:accepted?2:1.5,quality:accepted?'sufficient':'insufficient'}});
+ expect(result.same).toBe(true);
+});
+for(const format of ['single_select','drag_classify','inline_select','drag_order'])test('formato conocido permitido: '+format,async({page})=>{
+ const r=await page.evaluate(format=>{recHistory.forEach(a=>a.answers.forEach(q=>q.interactionType=format));return recs();},format);
+ expect(r.excluded).toBe(0);expect(r.recommendations[0].evidence.responses).toBe(4);
+});
+
+for(const group of ['root','intervals','weights'])for(const enumerable of [true,false])test('rechaza Symbol '+group+' enumerable='+enumerable,async({page})=>{
+ const r=await page.evaluate(({group,enumerable})=>{
+  const symbol=Symbol('extra'),nested={value:0},p=group==='root'?{}:{[group]:{}};
+  const target=group==='root'?p:p[group];Object.defineProperty(target,symbol,{value:nested,enumerable});
+  const freeze=o=>{if(o&&typeof o==='object'){Reflect.ownKeys(o).forEach(k=>freeze(o[k]));Object.freeze(o);}return o;};
+  freeze(p);let rejected=0;
+  for(let i=0;i<2;i++)try{NOA_STUDY_RECOMMENDATIONS_V27.build(recHistory,{...recOptions,policy:p});}catch(e){if(e instanceof RangeError)rejected++;}
+  return {rejected,same:target[symbol]===nested&&nested.value===0};
+ },{group,enumerable});
+ expect(r).toEqual({rejected:2,same:true});
+});
+test('mutar política efectiva no afecta entrada, defaults ni llamadas posteriores',async({page})=>{
+ expect(await page.evaluate(()=>{
+  const policy={intervals:{reforzar:2},weights:{errors:3,partials:1}};
+  Object.freeze(policy.intervals);Object.freeze(policy.weights);Object.freeze(policy);
+  const input=JSON.stringify(policy),opts={...recOptions,policy};
+  const a=NOA_STUDY_RECOMMENDATIONS_V27.build(recHistory,opts),before=JSON.stringify(a);
+  a.policy.intervals.reforzar=30;a.policy.weights.errors=99;a.policy.minResponses=99;
+  const b=NOA_STUDY_RECOMMENDATIONS_V27.build(recHistory,opts),c=recs();
+  return input===JSON.stringify(policy)&&before===JSON.stringify(b)&&c.policy.intervals.reforzar===1&&c.policy.weights.errors===3;
+ })).toBe(true);
+});
+test('objetos anidados inválidos y pesos que romperían monotonía se rechazan',async({page})=>{
+ expect(await page.evaluate(()=>[
+  {intervals:{reforzar:{days:1}}},{weights:{errors:{value:3}}},{weights:{errors:0,partials:1}}
+ ].map(policy=>{try{NOA_STUDY_RECOMMENDATIONS_V27.build(recHistory,{...recOptions,policy});return false;}catch(e){return e instanceof RangeError;}}))).toEqual([true,true,true]);
+});

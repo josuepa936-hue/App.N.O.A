@@ -47,8 +47,9 @@ pocos datos recibe evaluar, nunca un diagnóstico de debilidad.
 Valores predeterminados experimentales, no frecuencias oficiales EXCOBA:
 
 - Suficiencia: al menos 4 respuestas, 3 IDs de pregunta y 2 intentos.
-- Reforzar: suficiencia, crédito medio <= .6 y al menos 75% de errores completos
-  en dos intentos distintos, o 75% de parciales en dos intentos distintos.
+- Reforzar: suficiencia, crédito medio <= .6 y al menos 75% de respuestas con
+  dificultad (errores completos + parciales), con dificultad en dos intentos
+  distintos. La severidad se conserva mediante el crédito medio y el déficit.
 - Repasar: suficiencia y crédito medio >= .85.
 - Practicar: suficiente pero mixto o en consolidación.
 - Evaluar: no cumple algún umbral de suficiencia.
@@ -68,11 +69,34 @@ respecto a referenceDate se excluyen. Evidencia sin fecha válida puede contribu
 a los créditos, pero impide una fecha de repaso fiable para ese tema: dueAt/due
 son null. lastPracticeAt, si existe, solo representa la última fecha conocida.
 
-Orden explicable: errores en intentos distintos * weights.errors (3) + parciales
-en intentos distintos * weights.partials (1) + días de retraso, limitados a 30,
-* weights.overdue (1). Pesos configurables 0..100. Sin fecha fiable el componente
-de retraso es cero. Empates por IDs de materia y subtema, sin depender de locale.
-Esta puntuación ordena acciones, no mide dominio ni aprendizaje causal.
+Orden de urgencia: reforzar=3, practicar=2, repasar=1, evaluar=0. Evaluar indica
+falta de evidencia suficiente, no una afirmación de ausencia de dificultad.
+Se ordena primero por categoría y después por puntuación; un repaso atrasado
+no adelanta una categoría más urgente solo por sumar muchos días.
+
+Dentro de la categoría: número de errores completos * weights.errors (3) +
+suma de (1 - crédito) de respuestas parciales * weights.partials (1) + días
+de retraso, limitados a 30, * weights.overdue (1). Pesos configurables 0..100,
+con errors >= partials para conservar monotonía. No se modifican los créditos.
+Sin fecha fiable el componente de retraso es cero. Empates por IDs de materia
+y subtema, sin depender de locale. Esta puntuación ordena acciones, no mide
+dominio ni aprendizaje causal. `rank.urgency` expone la categoría ordinal.
+
+Con cantidad, IDs, intentos, fechas y política constantes, mejorar de incorrecta
+a parcial o de parcial a correcta no aumenta urgencia ni puntuación, y no acorta
+el intervalo. Por defecto, dos intentos con [0,0], [0,.5], [.5,.5], [1,.5] y
+[1,1] producen respectivamente reforzar/1 día, reforzar/1, reforzar/1,
+practicar/3 y repasar/7. Se prueban además 648 mejoras individuales entre 0,
+.5 y 1, bajo tres configuraciones válidas (incluida evidencia insuficiente).
+
+Solo se admiten formatos normalizados known pertenecientes a single_select,
+drag_classify, inline_select o drag_order. Invalid, conflict, unknown y absent
+se excluyen por registro normalizado, incluso cuando quality.issues esté vacío.
+Una contradicción no se resuelve por precedencia ni duplica excluded/créditos.
+
+La validación de política inspecciona todas las claves propias con
+Reflect.ownKeys, incluidas Symbol y no enumerables, en raíz, intervals y weights.
+Rechaza claves ajenas al contrato; los grupos devueltos son copias independientes.
 
 ## Salida
 
@@ -90,4 +114,4 @@ recomendaciones ni sustituye Judge, Calibrator, resultados o memoria.
 
 Pruebas deterministas: tests/study-recommendations.spec.cjs, con catálogo real,
 respuestas sintéticas y referencia fija; sin servicio de IA. Recursos offline
-incluidos en ASSETS, caché aislada v6-84.
+incluidos en ASSETS, caché aislada v6-85.
