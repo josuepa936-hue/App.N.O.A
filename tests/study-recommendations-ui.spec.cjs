@@ -164,3 +164,48 @@ test.describe('offline',()=>{test.use({serviceWorkers:'allow'});test('panel y da
  await expect(panel(page).locator('article')).toHaveCount(4);
  expect(await page.evaluate(()=>db.attempts.length)).toBe(7);
 });});
+
+test('actualización forzada dentro del minuto renueva vencimientos sin mutar historial',async({page})=>{
+ await page.evaluate(()=>{
+  db.attempts=[planAttempt('boundary',[.5],undefined,undefined,'2026-05-31T12:00:30.000Z')];save();
+  window.beforePlan=JSON.stringify({db,storage:{...localStorage}});
+  window.planCalls=0;const engine=NOA_STUDY_RECOMMENDATIONS_V27;
+  NOA_STUDY_RECOMMENDATIONS_V27={...engine,build:(...args)=>{planCalls++;return engine.build(...args);}};
+ });
+ const card=panel(page).locator('article');await expect(card).toContainText('Próximo');
+ const first=await page.evaluate(()=>NOA_STUDY_RECOMMENDATIONS_UI_V27.state().referenceDate);
+ await panel(page).getByLabel('Solo repasos vencidos').check();await expect(card).toHaveCount(0);
+ await page.clock.runFor(40000);
+ await panel(page).getByRole('button',{name:'Actualizar plan',exact:true}).click();
+ await expect(card).toHaveCount(1);await expect(card).toContainText('Vencido');
+ expect(await page.evaluate(()=>NOA_STUDY_RECOMMENDATIONS_UI_V27.state().referenceDate)).not.toBe(first);
+ expect(await page.evaluate(()=>planCalls)).toBe(1);
+ await panel(page).getByLabel('Prioridad',{exact:true}).selectOption('evaluar');
+ await panel(page).getByLabel('Solo repasos vencidos').uncheck();
+ await page.evaluate(()=>renderExamStats());expect(await page.evaluate(()=>planCalls)).toBe(1);
+ await panel(page).getByRole('button',{name:'Actualizar plan',exact:true}).click();
+ expect(await page.evaluate(()=>planCalls)).toBe(2);await expect(card).toHaveCount(1);
+ expect(await page.evaluate(()=>JSON.stringify({db,storage:{...localStorage}})===beforePlan)).toBe(true);
+});
+
+test('A–Z usa nombres verificados, acentos y desempates; preserva prioridades y filtros',async({page})=>{
+ await seed(page);
+ await page.evaluate(()=>{db.attempts.push(planAttempt('cuestionario',[1],'1.1.4'));save();});
+ const ids=()=>panel(page).locator('article').evaluateAll(nodes=>nodes.map(n=>n.dataset.subtopic));
+ const original=await ids();
+ await panel(page).getByLabel('Orden de presentación').selectOption('subject');
+ expect(await ids()).toEqual(['1.1.4','1.1.1','1.1.2','1.1.3','1.2.1']);
+ await page.evaluate(()=>renderExamStats());expect(await ids()).toEqual(['1.1.4','1.1.1','1.1.2','1.1.3','1.2.1']);
+ await panel(page).getByLabel('Materia',{exact:true}).selectOption('EXCOBA Primaria · Matemáticas');expect(await ids()).toEqual(['1.2.1']);
+ await panel(page).getByRole('button',{name:'Ver todas',exact:true}).click();expect(await ids()).toEqual(original);
+ // Catalog adapter fixture: names are supplied only by that adapter, never by answers.
+ await page.evaluate(()=>{
+  const c=NOA_ACADEMIC_RESULTS_V27.catalog();
+  for(const item of c.items){if(item.code==='1.1.1'||item.code==='1.1.2')item.title='Árbol';if(item.code==='1.1.3')item.title='Zorro';if(item.code==='1.1.4')item.title='Avión';}
+  NOA_ACADEMIC_RESULTS_V27={...NOA_ACADEMIC_RESULTS_V27,catalog:()=>c};
+  NOA_STUDY_RECOMMENDATIONS_UI_V27.refresh();
+ });
+ await panel(page).getByLabel('Orden de presentación').selectOption('subject');
+ expect(await ids()).toEqual(['1.1.1','1.1.2','1.1.4','1.1.3','1.2.1']);
+ await page.evaluate(()=>renderExamStats());expect(await ids()).toEqual(['1.1.1','1.1.2','1.1.4','1.1.3','1.2.1']);
+});

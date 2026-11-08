@@ -17,9 +17,12 @@ La presentación genera una referencia ISO UTC explícita con la hora exacta.
 Solo la clave de caché agrupa por minuto; nunca se trunca la referencia enviada
 al motor, evitando excluir como futuros los intentos recién guardados.
 Conserva el cálculo en memoria mientras historial, catálogo y minuto no cambien.
+El botón Actualizar plan fuerza un cálculo con referencia ISO exacta y renueva
+la vista incluso dentro del mismo minuto. Los filtros no invalidan la caché.
 Los filtros actúan sobre esa proyección; no vuelven a ejecutar el motor. El orden
 predeterminado conserva el orden devuelto por el motor. La opción alfabética solo
-ordena una copia para presentar materias/subtemas; no cambia prioridades.
+ordena una copia por nombre verificado de materia y título del subtema con
+comparación española y desempate por IDs; no cambia prioridades.
 
 El módulo se carga después del motor y espera `DOMContentLoaded`, respetando la
 inicialización de v4/v5. Si falta catálogo o motor, no calcula clasificaciones
@@ -61,8 +64,9 @@ real, calidad científica del contenido ni uso en dispositivos físicos.
 Las recomendaciones dependen de las declaraciones e identidades locales y de la
 admisibilidad conservadora del motor existente. No se reconstruye evidencia
 histórica ausente. La actualización del tiempo es por interacción o por el punto
-de actualización existente, con resolución de un minuto. Esta fase no modifica
+de actualización existente; la caché ordinaria agrupa por minuto y el botón
+explícito fuerza la referencia exacta. Esta fase no modifica
 los contratos académicos, el esquema persistente ni la ruta de guardado.
 
-El módulo se incluye en ASSETS y la caché cambia de v6-85 a v6-86, conservando
+El módulo se incluye en ASSETS y la caché cambia de v6-86 a v6-87, conservando
 el aislamiento por ruta de la aplicación. No se añaden dependencias.

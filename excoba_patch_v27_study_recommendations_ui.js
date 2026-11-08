@@ -27,7 +27,7 @@
   host.append(filters,status,coverage,cards);controls={subject,priority,order,overdue,all,refresh,status,coverage,cards};
   for(const el of [subject,priority,order,overdue])el.addEventListener('change',draw);
   all.addEventListener('click',()=>{subject.value=priority.value='';overdue.checked=false;order.value='priority';draw();});
-  refresh.addEventListener('click',()=>update());
+  refresh.addEventListener('click',()=>update(true));
   return host;
  }
  function unavailable(message){
@@ -42,7 +42,16 @@
   if(lastDraw===signature)return;lastDraw=signature;
   // Filtering preserves the engine's order; only the optional alphabetical view sorts.
   let rows=cache.model.recommendations.filter(r=>(!subject.value||r.subjectId===subject.value)&&(!priority.value||r.priority===priority.value)&&(!overdue.checked||r.review.due===true));
-  if(order.value==='subject')rows=[...rows].sort((a,b)=>(a.subjectId+' '+a.subtopicId).localeCompare(b.subjectId+' '+b.subtopicId,'es'));
+  if(order.value==='subject'){
+   const name=r=>({subject:cache.catalog.subjects.find(s=>s.value===r.subjectId)?.value,
+    title:cache.catalog.items.find(i=>i.code===r.subtopicId&&i.subject===r.subjectId)?.title});
+   const compare=(a,b)=>a<b?-1:a>b?1:0;
+   rows=[...rows].sort((a,b)=>{
+    const x=name(a),y=name(b);
+    return (x.subject||'').localeCompare(y.subject||'','es')||
+     (x.title||'').localeCompare(y.title||'','es')||compare(a.subjectId,b.subjectId)||compare(a.subtopicId,b.subtopicId);
+   });
+  }
   cards.replaceChildren();
   if(!cache.attemptCount)status.textContent='Historial vacío. Completa un simulacro para disponer de resultados.';
   else if(!cache.declared)status.textContent='No hay sesiones de estudio declaradas. La procedencia técnica o desconocida no aporta evidencia de dominio. La declaración solo se aplica a nuevos simulacros.';
@@ -69,7 +78,7 @@
    r.warnings.forEach(w=>detail.appendChild(node('p',w,'noa-plan-help')));card.appendChild(detail);cards.appendChild(card);
   }
  }
- function update(){
+ function update(force=false){
   if(!initialized||!ensure())return;
   try{
    const catalog=window.NOA_ACADEMIC_RESULTS_V27?.catalog?.();
@@ -78,7 +87,8 @@
    // Bucket only the cache key, never the engine reference: a just-saved attempt
    // must not appear to be in the future merely because seconds were truncated.
    const at=reference(),attempts=db.attempts,key=JSON.stringify([attempts,catalog,at.slice(0,16)]);
-   if(!cache||cache.key!==key){
+   if(force||!cache||cache.key!==key){
+    lastDraw=null;
     const model=NOA_STUDY_RECOMMENDATIONS_V27.build(attempts,{catalog,referenceDate:at});
     cache={key,model,catalog,attemptCount:attempts.length,declared:attempts.some(a=>a?.evidenceKind==='student')};
     const previous=controls.subject.value;controls.subject.replaceChildren();
