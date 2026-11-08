@@ -23,3 +23,51 @@ test.describe('offline',()=>{test.use({serviceWorkers:'allow'});test('panel y mo
 
 test('examen activo recuperado conserva plazo y panel final',async({page})=>{await openTimed(page);const initial=await startMixed(page);await answerTimed(page,timedQuestions[0]);await page.reload();await page.waitForFunction(()=>!!window.NOA_ACADEMIC_RESULTS_V27&&!!NOA_EXAM_SHELL.state().timing);expect(await page.evaluate(()=>NOA_EXAM_SHELL.state().timing.deadlineAt)).toBe(initial.clock.timing.deadlineAt);await expire(page);await expect(page.locator('#examBox .noa-academic-panel')).toContainText('Omitidos: 3');expect(await page.evaluate(()=>db.attempts.length)).toBe(1);});
 test('nueve materias y reparto 10/20/15 conservan 45 créditos máximos',async({page})=>{await fixture(page);const r=await page.evaluate(()=>{const answers=panelOptions.catalog.subjects.flatMap((subject,s)=>Array.from({length:5},(_,i)=>({questionId:s+'-'+i,subject:subject.value,syllabusCode:panelOptions.catalog.items.find(x=>x.subject===subject.value).code,scoreFraction:.5})));return NOA_ACADEMIC_STATS_V27.aggregate({id:'45',technicalTest:true,total:45,answers},panelOptions);});expect(r.stats).toMatchObject({total:45,credit:22.5,maxCredit:45,percent:50});expect(r.sections.map(s=>s.stats.total)).toEqual([10,20,15]);expect(r.sections.flatMap(s=>s.children)).toHaveLength(9);expect(r.sections.flatMap(s=>s.children).every(s=>s.stats.total===5)).toBe(true);});
+
+test('recarga con historial no clasifica antes de inicializar v4/v5',async({page})=>{
+ await fixture(page);await page.evaluate(()=>{db.attempts=[panelAttempt];save();});
+ await page.addInitScript(()=>document.addEventListener('DOMContentLoaded',()=>{window.__earlyCatalog={v4:!!window.NOA_EXCOBA_V4,panels:document.querySelectorAll('.noa-academic-panel').length};},{once:true}));
+ await page.reload();await page.waitForFunction(()=>!!window.NOA_ACADEMIC_RESULTS_V27&&document.querySelector('#examStats .noa-academic-panel'));
+ expect(await page.evaluate(()=>window.__earlyCatalog)).toEqual({v4:false,panels:0});
+ await expect(page.locator('#examStats .noa-academic-panel')).toContainText('EXCOBA Primaria · Español');
+ await expect(page.locator('#examStats .noa-academic-panel')).toContainText('1.1.1');
+ await page.evaluate(()=>{NOA_ACADEMIC_RESULTS_V27.refresh();NOA_ACADEMIC_RESULTS_V27.refresh();});
+ await expect(page.locator('#examStats .noa-academic-panel')).toHaveCount(1);
+});
+for(const mode of ['valid','absent','wrong-id','foreign-code','wrong-subject'])test('catálogo de solo lectura: '+mode,async({page})=>{
+ await fixture(page);
+ const r=await page.evaluate(mode=>{
+  const original=structuredClone(db.masterSyllabus);
+  if(mode==='absent')db.masterSyllabus=null;
+  if(mode==='wrong-id')db.masterSyllabus={...original,id:'unrelated'};
+  if(mode==='foreign-code'){db.masterSyllabus=structuredClone(original);db.masterSyllabus.items[0].code='9.9.9';}
+  if(mode==='wrong-subject'){db.masterSyllabus=structuredClone(original);db.masterSyllabus.items[0].subject='Materia ajena';}
+  const before=JSON.stringify(db),storage=JSON.stringify({...localStorage});
+  const oldSave=window.save,repair=NOA_EXCOBA_FIX_V5.repair;
+  window.save=NOA_EXCOBA_FIX_V5.repair=()=>{throw Error('writes forbidden');};
+  let catalog,report;
+  try{catalog=NOA_ACADEMIC_RESULTS_V27.catalog();report=NOA_ACADEMIC_RESULTS_V27.render(document.getElementById('examStats'),{total:1,answers:[{questionId:'q',syllabusCode:'9.9.9',ok:true}]});}
+  finally{window.save=oldSave;NOA_EXCOBA_FIX_V5.repair=repair;}
+  return {source:catalog.source,canonical:catalog.items.some(x=>x.code==='1.1.1'),foreign:catalog.items.some(x=>x.code==='9.9.9'),unchanged:before===JSON.stringify(db)&&storage===JSON.stringify({...localStorage}),section:report.sections[0].id};
+ },mode);
+ expect(r).toMatchObject({source:mode==='valid'?'verified-persisted':'verified-static',canonical:true,foreign:false,unchanged:true,section:null});
+});
+for(const kind of ['technical_test','unknown','student'])test('procedencia '+kind+' coincide en vista inmediata e historial',async({page})=>{
+ await openTimed(page);await startMixed(page);await answerTimed(page,timedQuestions[0]);await expire(page);
+ await page.evaluate(kind=>{const attempt=db.attempts[0];if(kind!=='unknown')attempt.evidenceKind=kind;if(kind==='technical_test')attempt.technicalTest=true;renderExam();renderExamStats();},kind);
+ const text=kind==='technical_test'?'datos técnicos de prueba':kind==='student'?'estudiante declarada':'desconocida';
+ await expect(page.locator('#examBox .noa-academic-panel')).toContainText('Procedencia: '+text);
+ await expect(page.locator('#examStats .noa-academic-panel')).toContainText('Procedencia: '+text);
+ const result=await page.evaluate(()=>({a:document.querySelector('#examBox .noa-academic-panel').textContent,b:document.querySelector('#examStats .noa-academic-panel').textContent}));
+ expect(result.a).toBe(result.b);
+ if(kind!=='student')expect(result.a).toContain('Evidencia sobre respuestas: 0/0 créditos');
+ expect(await page.evaluate(()=>db.attempts.length)).toBe(1);
+});
+test('contexto sin tiempo usa el intento real del commit y respeta veto técnico',async({page})=>{
+ await openTimed(page);await startMixed(page,timedQuestions,false);
+ const helpers=require('./timed-exam-fixtures.cjs');await helpers.answerAll(page);
+ await page.evaluate(async()=>{await NOA_EXAM_NAVIGATION.finishExam();db.attempts[0].technicalTest=true;renderExam();renderExamStats();});
+ await expect(page.locator('#examBox .noa-academic-panel')).toContainText('datos técnicos de prueba');
+ await expect(page.locator('#examStats .noa-academic-panel')).toContainText('datos técnicos de prueba');
+ expect(await page.evaluate(()=>db.attempts.length)).toBe(1);
+});
