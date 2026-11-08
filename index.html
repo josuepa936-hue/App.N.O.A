@@ -548,6 +548,15 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
         <div class="row" style="margin-top:14px"><button class="btn primary" onclick="startExam()">Generar simulacro</button><button class="btn" onclick="openQuestionModal()">+ Añadir pregunta</button></div>
         <p class="small">NOA prioriza preguntas de temas con menor dominio. Puedes usar preguntas manuales y generadas.</p>
         <div class="field" style="margin-top:14px">
+          <label for="noaExamEvidenceKind">Procedencia del próximo simulacro</label>
+          <select id="noaExamEvidenceKind" autocomplete="off" aria-describedby="noaExamEvidenceHelp">
+            <option value="unknown" selected>Sin declaración · procedencia desconocida</option>
+            <option value="student">Declaro que iniciaré una sesión de estudio</option>
+            <option value="technical_test">Prueba técnica · sin evidencia académica</option>
+          </select>
+          <p class="small" id="noaExamEvidenceHelp">Aplica una sola vez al próximo examen manual o generado. No modifica el examen activo. Declarar estudio no certifica la calidad del reactivo ni el dominio académico. Sin declaración, el resultado será descriptivo y no aportará evidencia de dominio.</p>
+        </div>
+        <div class="field" style="margin-top:14px">
           <label for="noaExamTimed" style="display:flex;align-items:center;gap:8px"><input id="noaExamTimed" type="checkbox" style="width:auto" aria-describedby="noaExamTimingHelp" onchange="document.getElementById('noaExamDurationMinutes').disabled=!this.checked"> Simulacro con límite de tiempo</label>
           <div class="field" style="margin-top:8px"><label for="noaExamDurationMinutes">Duración elegida (minutos)</label><input id="noaExamDurationMinutes" type="number" min="1" max="1440" step="1" value="60" disabled style="max-width:180px" aria-describedby="noaExamTimingHelp"></div>
           <p class="small" id="noaExamTimingHelp">Aplica al próximo simulacro manual o generado, de cualquier tamaño. Es una duración de práctica elegida por ti; no una duración oficial verificada. Desactívalo para entrenar sin límite.</p>
@@ -1322,6 +1331,7 @@ function startExam(){
 
   examAnswers = [];
 
+  window.NOA_STUDY_PROVENANCE_V27?.begin(examAnswers,examQueue);
 
   renderExam();
 
@@ -1478,11 +1488,18 @@ async function commitCompletedExam(options = {}){
   let attempt = {id:timing?.attemptId || uid(), score:examScore, total:questions.length, pct,
     at:finalTiming ? new Date(finalTiming.closedAt).toISOString() : new Date().toISOString(),
     difficultyStats, answers,
+    ...(window.NOA_STUDY_PROVENANCE_V27?.capture(sessionAnswers,questions) || {evidenceKind:'unknown'}),
     ...(finalTiming ? {timing:finalTiming,finishReason:finalTiming.finishReason} : {})};
   const stable = value => JSON.stringify(value,(_,item) => item && typeof item === 'object' && !Array.isArray(item)
     ? Object.fromEntries(Object.keys(item).sort().map(key => [key,item[key]])) : item);
   const durableAttempt = timing && durable?.attempts?.find(item => item.id === timing.attemptId);
-  if(durableAttempt && stable(durableAttempt) !== stable(attempt)){
+  // A legacy durable result may predate explicit provenance. Reuse its JSON;
+  // unknown is compatible with absence, never with a new student declaration.
+  const comparableAttempt = {...attempt};
+  if(durableAttempt && !Object.prototype.hasOwnProperty.call(durableAttempt,'evidenceKind') && attempt.evidenceKind === 'unknown'){
+    delete comparableAttempt.evidenceKind;
+  }
+  if(durableAttempt && stable(durableAttempt) !== stable(comparableAttempt)){
     throw new Error('El identificador del cierre ya pertenece a otro resultado.');
   }
   if(timing && !durableAttempt && sessionDatabase.attempts.some(item => item.id === timing.attemptId)){
@@ -2925,7 +2942,9 @@ function beginExamQueue(queue,label='Simulacro'){
   if(!validExamTimingConfiguration()) return;
   if(!queue.length){toast('No hay preguntas suficientes');return}
   window.NOA_MIXED_EXAM?.stop?.();
-  examQueue=queue;examIndex=0;examScore=0;examAnswers=[];page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);
+  examQueue=queue;examIndex=0;examScore=0;examAnswers=[];
+  window.NOA_STUDY_PROVENANCE_V27?.begin(examAnswers,examQueue);
+  page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);
 }
 function startExamForTarget(target,count=10){
   if(!db.subjects.some(s=>s.name.startsWith('EXCOBA')))loadExcobaPreset(true);
@@ -3382,6 +3401,7 @@ renderTimer();renderAll();addMsg('noa','Hola. Soy NOA. Ahora también puedes hab
 <script src="./excoba_patch_v25_multibatch.js"></script>
 <script src="./excoba_patch_v25_exam_ui.js"></script>
 <script src="./excoba_patch_v25_question_memory.js"></script>
+<script src="./excoba_patch_v27_study_provenance.js"></script>
 <script src="./excoba_patch_v27_results_normalization.js"></script>
 <script src="./excoba_patch_v27_academic_stats.js"></script>
 <script src="./excoba_patch_v27_academic_results.js"></script>

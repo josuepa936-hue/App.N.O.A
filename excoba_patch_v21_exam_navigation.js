@@ -234,6 +234,7 @@
           index:examIndex,
           score:examScore,
           answers:clone(examAnswers),
+          ...(window.NOA_STUDY_PROVENANCE_V27?.capture(examAnswers,examQueue) || {evidenceKind:'unknown'}),
           drafts:mixed && !closing ? clone([...drafts]) : [],
           clock:mixed || timing ? clone(clock) : null,
           revision:mixed && !closing ? window.NOA_ANSWER_REVISION?.capture?.() || null : null
@@ -293,6 +294,7 @@
   }
 
   function validRecovery(snapshot){
+    if(window.NOA_STUDY_PROVENANCE_V27 && !window.NOA_STUDY_PROVENANCE_V27.valid(snapshot)) return false;
     const timing = snapshot?.clock?.timing;
     if(timing && (!Array.isArray(snapshot.queue) || !window.NOA_EXAM_SHELL.validTiming?.(timing,snapshot.queue))) return false;
     const closing = timing && timing.status !== 'open';
@@ -2270,6 +2272,7 @@
         examScore = recovered.score;
         // v22 ya observó este array: rellenarlo conserva la frontera de sesión.
         examAnswers.push(...clone(recovered.answers));
+        window.NOA_STUDY_PROVENANCE_V27?.restore(examAnswers,recovered,examQueue);
         drafts.clear();
         for(const [key, draft] of recovered.drafts) drafts.set(String(key), clone(draft));
         sessionTitle = recovered.title || sessionTitle;

@@ -226,7 +226,7 @@ test.describe('v24 etapa 2 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v24: !!await (await caches.open(name)).match(new URL('excoba_patch_v24_generator_ui.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-81$/); expect(cached.v24).toBe(true);
+    expect(cached.name).toMatch(/:v6-82$/); expect(cached.v24).toBe(true);
     await context.setOffline(true); await page.reload(); await page.waitForFunction(() => !!window.NOA_GENERATOR_UI);
     await page.locator('#nav button[data-page="exam"]').click(); const before = await examState(page); await generate(page).click();
     await expect(phase(page)).toHaveText('Error del motor'); await expect(page.locator('#noaGeneratorDetails')).toContainText(/conexi[oó]n|offline|internet/i);

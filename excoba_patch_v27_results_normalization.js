@@ -14,6 +14,7 @@
   const types = ['single_select','drag_classify','inline_select','drag_order'];
   const sectionLabels = {primary:'Primaria',secondary:'Secundaria',medicine:'Especialidad Medicina'};
   const field = (value = null, state = 'absent', sources = []) => ({value,state,sources});
+  const unknownEvidence = value => own(value,'evidenceKind') && !['student','technical_test'].includes(value.evidenceKind);
   const read = (value, key, path, valid = text) => !own(value,key) ? field()
     : value[key] == null ? field(null,'unknown',[path])
       : valid(value[key]) ? field(typeof value[key] === 'string' ? value[key].trim() : value[key],'known',[path])
@@ -118,7 +119,8 @@
     const classification = academic(a,options.catalog);
     const technical = options.evidenceKind === 'technical_test' || attempt.evidenceKind === 'technical_test' ||
       a.evidenceKind === 'technical_test' || attempt.technicalTest === true || a.technicalTest === true;
-    const evidenceKind = technical ? 'technical_test' : options.evidenceKind === 'student' ? 'student' : 'unknown';
+    const evidenceKind = technical ? 'technical_test' : options.evidenceKind === 'student' &&
+      !unknownEvidence(attempt) && !unknownEvidence(a) ? 'student' : 'unknown';
     const validReason = value => ['manual','timeout'].includes(value);
     const finishReason = combine([read(attempt,'finishReason','attempt.finishReason',validReason),read(attempt.timing,'finishReason','attempt.timing.finishReason',validReason)]);
     const presented = read(a,'presented','answer.presented',value => typeof value === 'boolean');
@@ -249,13 +251,18 @@
       existing.variants.push({input:attempt,index,value});
       const copies = [], provenance = [];
       for(const variant of existing.variants){
+        const technical = variant.input.technicalTest === true || variant.input.evidenceKind === 'technical_test';
         (Array.isArray(variant.input.answers) ? variant.input.answers : []).forEach((answer,answerIndex) => {
-          copies.push(object(answer) && (variant.input.technicalTest === true || variant.input.evidenceKind === 'technical_test')
-            ? {...answer,technicalTest:true} : answer);
+          copies.push(object(answer) && (technical || answer.technicalTest === true || answer.evidenceKind === 'technical_test')
+            ? {...answer,technicalTest:true} : object(answer) && unknownEvidence(variant.input)
+              ? {...answer,evidenceKind:'unknown'} : answer);
           provenance.push({attemptIndex:variant.index,answerIndex});
         });
       }
-      const projection = normalizeAttempt({...existing.variants[0].input,technicalTest:false,evidenceKind:undefined,answers:copies},options);
+      // Each copy carries its explicit veto; do not borrow the first attempt's declaration.
+      const merged = {...existing.variants[0].input,technicalTest:false,answers:copies};
+      delete merged.evidenceKind;
+      const projection = normalizeAttempt(merged,options);
       const variantIssues = existing.variants.flatMap(variant => variant.value.issues);
       let conflict = false;
       for(const key of ['at','declaredTotal','reportedScore']){

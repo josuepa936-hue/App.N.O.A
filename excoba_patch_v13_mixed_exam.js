@@ -419,6 +419,7 @@
 
     examAnswers = [];
 
+    window.NOA_STUDY_PROVENANCE_V27?.begin(examAnswers,examQueue);
 
     try{
 

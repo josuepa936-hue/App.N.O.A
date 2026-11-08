@@ -101,6 +101,8 @@ no significa validación oficial de la pregunta o del nivel del estudiante.
    no omitidos para futuras métricas de dominio. Por defecto la procedencia es
    `unknown`. Los marcadores `evidenceKind: 'technical_test'` o `technicalTest: true`
    en intento o respuesta vetan esa habilitación, incluso con opción `student`.
+   Desde v27.3B, una marca explícita `unknown` o inválida también veta esa opción;
+   las marcas técnicas por respuesta conservan su exclusión individual histórica.
    No se deduce procedencia por patrones de ID ni por una buena puntuación de Judge.
 6. `domainEligible` no afirma dominio: un consumidor futuro deberá exigir además
    clasificación válida para atribuir resultados a una materia o subtema. Las
