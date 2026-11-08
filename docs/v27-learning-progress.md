@@ -14,7 +14,8 @@ o inválidas no se sustituyen; se listan al final sin asignarles cronología.
 `compare(before, after)` solo devuelve delta en puntos porcentuales si ambos son
 completos/verificables, el resumen de puntuación coincide con los créditos, tienen ID y fechas distintas ascendentes, no son técnicos y
 coinciden total y distribución de sección/materia/subtema/formato/dificultad
-estimada/fuente. Un cambio de cantidad o cobertura impide comparar globalmente.
+estimada/fuente y configuración temporal verificada. Un cambio de cantidad,
+cobertura o límite temporal impide comparar globalmente.
 La dificultad es estimada, no oficialmente calibrada. La falta de perfil de
 entrenamiento o condiciones históricas no registradas se advierte; coincidencia
 de condiciones registradas no es equivalencia psicométrica de los reactivos.
@@ -30,7 +31,44 @@ lista cobertura/advertencias y permite seleccionar dos intentos. Los técnicos s
 listan identificados pero se excluyen de gráfica y comparación. Los desconocidos
 pueden mostrar cambios descriptivos, siempre sin evidencia verificada de dominio.
 No se comparan porcentajes incompletos. No hay librerías nuevas ni persistencia
-nueva; las vistas se derivan tras recargar/restaurar y funcionan offline (v6-80).
+nueva; las vistas se derivan tras recargar/restaurar y funcionan offline (v6-81).
+
+## Condiciones verificables y diagnóstico
+
+Cada fila añade `conditions.timing` y `conditions.items` exclusivamente a la
+proyección en memoria. No se guardan ni se migran los históricos. Los estados
+son `known`, `absent`, `unknown`, `invalid` y `conflict`; los campos `sources` y
+`evidence` conservan rutas como `attempts[1].answers[0].blueprintSlot.difficulty.level`.
+Los diagnósticos solo copian valores primitivos; no comparten objetos de entrada.
+
+La lectura de `timing` reconoce la configuración v26 con `version: 26` y
+`durationMs` entero seguro entre 60000 y 86400000, los mismos límites que su
+validador. Si se aportan `startedAt` y `deadlineAt`, ambos deben ser válidos y su
+diferencia debe coincidir con el límite. El intervalo permitido participa en la
+firma; el tiempo utilizado (`closedAt - startedAt`) y el motivo de cierre no
+definen equivalencia. Dos límites de 60000 y 3600000 no son comparables.
+
+Para expresar explícitamente un examen sin límite, esta capa de lectura admite
+`timing: {mode: 'untimed'}` sin duración, inicio ni vencimiento. Es una declaración
+de entrada documentada, no un campo que v26 guarde actualmente. No se sintetiza
+para los históricos ni se añade al formato de respaldo; los respaldos siguen
+validando el contrato persistido de v26. `timing` ausente o `null` significa configuración no
+verificable, nunca cero minutos ni ausencia confirmada de límite. Los resultados
+siguen visibles de forma descriptiva, pero no reciben un delta concluyente.
+Las copias de un mismo intento se comprueban juntas para detectar límites o
+modos contradictorios, conservando las rutas originales.
+
+Para cada reactivo se inspeccionan todos los valores presentes de `difficulty`,
+`blueprint.difficulty` y `blueprintSlot.difficulty.level`: deben ser enteros de
+1 a 5 y coincidir. Se aplica lo mismo a `sourceType` y
+`blueprintSlot.sourceType`, con los valores reales de v8: `official`, `extended`
+y `course`. Ausencia de un campo opcional no genera conflicto si otro aporta
+evidencia válida; un valor explícito desconocido, inválido o contradictorio
+impide verificar esa condición. Se usa la fuente efectiva, no la solicitada:
+un fallback de curso a oficial no es por sí mismo una contradicción.
+
+Los porcentajes se formatean solo en presentación: `75%`, `62.5%` o
+`No calculable`. No se redondean los créditos ni los datos de comparación.
 
 ## Procedencia actual y modificación mínima futura (no implementada)
 

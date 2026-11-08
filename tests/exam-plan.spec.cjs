@@ -315,7 +315,7 @@ test.describe('v25 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v25: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_plan.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-80$/);
+    expect(cached.name).toMatch(/:v6-81$/);
     expect(cached.v25).toBe(true);
     await context.setOffline(true);
     await page.reload();

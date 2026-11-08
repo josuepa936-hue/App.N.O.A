@@ -1,7 +1,7 @@
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX =
   'noa-mobile:' + encodeURIComponent(CACHE_SCOPE) + ':';
-const CACHE = CACHE_PREFIX + 'v6-80';
+const CACHE = CACHE_PREFIX + 'v6-81';
 
 
 const ASSETS = [

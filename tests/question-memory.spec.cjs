@@ -405,7 +405,7 @@ test.describe('memoria con Service Worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, module: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_question_memory.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-80$/);
+    expect(cached.name).toMatch(/:v6-81$/);
     expect(cached.module).toBe(true);
     await page.evaluate(async questions => NOA_QUESTION_MEMORY_V25_2.recordExam(questions, 'before-offline'), memoryQuestions);
     await context.setOffline(true); await page.reload();
