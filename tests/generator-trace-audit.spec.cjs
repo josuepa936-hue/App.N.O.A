@@ -127,8 +127,8 @@ for (const count of [5, 10]) {
     const completed = await snapshot(page);
     expect(completed.attempts).toHaveLength(1);
     verifyAnswers(completed.attempts[0].answers, queue);
-    expect(completed.calibration.sample).toBe(count);
-    expect(Object.values(completed.calibration.stats).reduce((sum, stats) => sum + stats.credit, 0)).toBe(expectedScore);
+    expect(completed.calibration.sample).toBe(0); // Unknown provenance is not adaptive evidence.
+    expect(Object.values(completed.calibration.stats).reduce((sum, stats) => sum + stats.credit, 0)).toBe(0);
     await page.reload();
     const reloaded = await snapshot(page);
     expect(reloaded.attempts).toEqual(completed.attempts);

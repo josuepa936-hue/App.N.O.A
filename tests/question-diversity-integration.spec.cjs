@@ -459,7 +459,7 @@ test('diversidad Examen A finalizado → B rota temas y evita preguntas exactas 
     calibration: NOA_CALIBRATOR.get() }));
   expect(saved.attempts).toHaveLength(1);
   expect(saved.stats).toMatchObject({ ok: true, uniqueQuestions: 5, totalSeen: 5, sessions: 1 });
-  expect(saved.calibration.sample).toBe(5);
+  expect(saved.calibration.sample).toBe(0); // No explicit student declaration in this fixture.
   expect(saved.entries.every(entry => entry.timesSeen === 1)).toBe(true);
   await page.evaluate(() => { NOA_EXAM_NAVIGATION.finishExam(); NOA_EXAM_NAVIGATION.finishExam(); });
   page.diversityBeforeReloadForbidden = (await fixture(page)).forbidden;
@@ -528,7 +528,7 @@ test.describe('diversidad integrada con Service Worker real', () => {
       const names = (await caches.keys()).filter(name => name.startsWith('noa-mobile:' + encodeURIComponent(scope) + ':'));
       return { names, memory: !!await (await caches.open(names[0])).match(new URL('excoba_patch_v25_question_memory.js', scope).href) };
     });
-    expect(cachesState.names).toHaveLength(1); expect(cachesState.names[0]).toMatch(/:v6-87$/);
+    expect(cachesState.names).toHaveLength(1); expect(cachesState.names[0]).toMatch(/:v6-88$/);
     expect(cachesState.memory).toBe(true);
   });
 });

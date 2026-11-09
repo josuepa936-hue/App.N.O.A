@@ -461,12 +461,12 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
     <div class="hero"><h2>¿Qué toca dominar hoy?</h2><p>NOA prioriza debilidades, tarjetas vencidas y temas con poca práctica.</p></div>
     <div class="grid grid4">
       <div class="card stat"><div class="n" id="sSubjects">0</div><div class="l">Materias</div></div>
-      <div class="card stat"><div class="n" id="sMastery">0%</div><div class="l">Dominio promedio</div></div>
+      <div class="card stat"><div class="n" id="sMastery">0%</div><div class="l">Rendimiento declarado por tema · datos admisibles</div></div>
       <div class="card stat"><div class="n" id="sDue">0</div><div class="l">Flashcards pendientes</div></div>
       <div class="card stat"><div class="n" id="sSessions">0</div><div class="l">Sesiones registradas</div></div>
     </div>
     <div class="grid grid2" style="margin-top:16px">
-      <div class="card"><h3>Prioridades</h3><div id="priorityList" class="list"></div></div>
+      <div class="card"><h3>Prioridades de práctica · indicador heredado provisional</h3><p class="small">Solo exámenes finalizados y declarados con evidencia admisible. Sin evidencia no significa dificultad demostrada. No equivale al plan académico; los contadores antiguos y las flashcards se conservan, pero no reconstruyen este indicador.</p><div id="priorityList" class="list"></div></div>
       <div class="card"><h3>Actividad reciente</h3><div id="recentList" class="list"></div></div>
     </div>
   </section>
@@ -720,11 +720,11 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
         <div><h3 style="margin-bottom:4px">Temario EXCOBA UAQ</h3><div class="small">Preset de práctica para Medicina · guía UAQ 2026-2</div></div>
         <div class="row">
           <button class="btn primary" onclick="loadExcobaPreset()">Cargar temario</button>
-          <button class="btn" onclick="startExcobaExam(45)">Demo 45</button>
-          <button class="btn" onclick="startExcobaExam(180)">Completo 180</button>
+          <button class="btn" onclick="startExcobaExam(45)">Entrenamiento local 45</button>
+          <button class="btn" onclick="startExcobaExam(180)">Entrenamiento completo 180</button>
         </div>
       </div>
-      <p class="muted">Incluye competencias básicas de primaria/secundaria y, para Medicina, Matemáticas para estadística, Biología y Química.</p>
+      <p class="muted">Este entrenamiento local requiere un banco completo de reactivos únicos por materia; no genera ni rellena preguntas automáticamente y no equivale al examen oficial. Para entrenamientos parciales usa Simulacros y selecciona una cantidad menor. Incluye competencias básicas de primaria/secundaria y, para Medicina, Matemáticas para estadística, Biología y Química.</p>
     </div>
   </section>
 
@@ -815,25 +815,65 @@ function act(text){db.activity.unshift({id:uid(),text,at:new Date().toISOString(
 function fmtDate(x){if(!x)return'—';return new Date(x).toLocaleString()}
 function topicBy(id){return db.topics.find(x=>x.id===id)}
 function subjectBy(id){return db.subjects.find(x=>x.id===id)}
-function mastery(t){if(!t||!t.attempts)return 0; return Math.round((t.correct/t.attempts)*100)}
+// v27.4: read-only selection for legacy indicators; persisted counters remain raw.
+let legacyEvidenceCache = null;
+function legacyAcademicEvidence(){
+  const normalizer=window.NOA_RESULTS_NORMALIZATION_V27;
+  if(!normalizer)return [];
+  const key=JSON.stringify(db.attempts);
+  if(legacyEvidenceCache?.key===key)return legacyEvidenceCache.attempts;
+  const history=normalizer.normalizeHistory(db.attempts,{evidenceKind:'student'}), attempts=[];
+  for(const projection of history.attempts){
+    const copies=projection.sourceAttemptIndexes.map(i=>db.attempts[i]);
+    if(projection.attemptId.state!=='known'||!copies.every(a=>a.evidenceKind==='student'&&
+      window.NOA_STUDY_PROVENANCE_V27?.valid(a)&&window.NOA_STUDY_PROVENANCE_V27.kind(a)==='student'&&
+      Array.isArray(a.answers)&&a.answers.every(answer=>window.NOA_STUDY_PROVENANCE_V27.valid(answer)))||
+      projection.records.some(r=>r.quality.issues.includes('credit_ok_disagreement'))||
+      projection.issues.some(issue=>issue!=='duplicate_answers')||projection.declaredTotal.state!=='known'||
+      projection.declaredTotal.value!==projection.records.length||projection.reportedScore.state!=='known'||
+      Math.abs(projection.reportedScore.value-projection.records.reduce((sum,r)=>sum+(r.credit.value||0),0))>1e-9)continue;
+    const answers=[];
+    for(const record of projection.records){
+      if(!record.domainEligible||record.credit.state!=='known'||record.quality.deduplication==='unverifiable')continue;
+      const raw=copies.flatMap(a=>a.answers||[]).filter(a=>
+        record.questionId.state==='known'&&a.questionId===record.questionId.value||
+        record.planSlotId.state==='known'&&a.planSlotId===record.planSlotId.value);
+      const levels=raw.flatMap(a=>[a.difficulty,a.blueprint?.difficulty,(a.blueprintSlot?.difficulty?.level ?? a.blueprintSlot?.difficulty)]).filter(v=>v!==undefined);
+      const validLevel=levels.length&&levels.every(v=>Number.isInteger(v)&&v>=1&&v<=5&&v===levels[0]);
+      answers.push({topicId:record.topicId.state==='known'?record.topicId.value:null,
+        at:record.at.state==='known'?record.at.value:null,scoreFraction:record.credit.value,
+        ok:record.credit.value===1,...(validLevel?{blueprint:{difficulty:levels[0]}}:{})});
+    }
+    attempts.push({answers});
+  }
+  legacyEvidenceCache={key,attempts};return attempts;
+}
+function academicTopic(t){
+  const answers=legacyAcademicEvidence().flatMap(a=>a.answers).filter(a=>t?.id&&a.topicId===t.id);
+  return {attempts:answers.length,correct:answers.reduce((n,a)=>n+a.scoreFraction,0),
+    lastSeen:answers.map(a=>a.at).filter(Boolean).sort((a,b)=>Date.parse(a)-Date.parse(b)).at(-1)||null};
+}
+function mastery(t){const a=academicTopic(t);return a.attempts?Math.round(a.correct/a.attempts*100):null}
+function masteryLabel(t){const value=mastery(t);return value===null?'Sin evidencia admisible':value+'%'}
+
 function dueCards(){let n=Date.now();return db.cards.filter(c=>!c.due||new Date(c.due).getTime()<=n)}
 function page(name,title){document.querySelectorAll('.section').forEach(e=>e.classList.toggle('active',e.id===name));document.querySelectorAll('#nav button').forEach(e=>e.classList.toggle('active',e.dataset.page===name));document.getElementById('pageTitle').textContent=title||name}
 document.getElementById('nav').onclick=e=>{if(e.target.dataset.page) page(e.target.dataset.page,e.target.textContent.trim().replace(/^[^\wÁ-ú]+/,'').trim())}
 
 function renderAll(){
   document.getElementById('sSubjects').textContent=db.subjects.length;
-  let mt=db.topics.length?Math.round(db.topics.reduce((a,t)=>a+mastery(t),0)/db.topics.length):0;
-  document.getElementById('sMastery').textContent=mt+'%';
+  const measured=db.topics.map(mastery).filter(v=>v!==null);
+  document.getElementById('sMastery').textContent=measured.length?Math.round(measured.reduce((a,b)=>a+b,0)/measured.length)+'%':'Sin datos';
   document.getElementById('sDue').textContent=dueCards().length;
   document.getElementById('sSessions').textContent=db.sessions.length;
 
   let pr=[...db.topics].sort((a,b)=>priority(b)-priority(a)).slice(0,6);
-  document.getElementById('priorityList').innerHTML=pr.length?pr.map(t=>`<div class="item"><div class="row" style="justify-content:space-between"><b>${esc(t.name)}</b><span class="badge">${mastery(t)}%</span></div><div class="progress" style="margin-top:8px"><div style="width:${mastery(t)}%"></div></div><div class="small" style="margin-top:6px">${esc(subjectBy(t.subjectId)?.name||'Sin materia')} · prioridad ${Math.round(priority(t))}</div></div>`).join(''):'<p class="muted">Agrega materias y temas para que NOA calcule prioridades.</p>';
+  document.getElementById('priorityList').innerHTML=pr.length?pr.map(t=>`<div class="item"><div class="row" style="justify-content:space-between"><b>${esc(t.name)}</b><span class="badge">${masteryLabel(t)}</span></div><div class="progress" style="margin-top:8px"><div style="width:${mastery(t)??0}%"></div></div><div class="small" style="margin-top:6px">${esc(subjectBy(t.subjectId)?.name||'Sin materia')} · prioridad ${Math.round(priority(t))}</div></div>`).join(''):'<p class="muted">Agrega materias y temas para que NOA calcule prioridades.</p>';
   document.getElementById('recentList').innerHTML=db.activity.slice(0,7).map(a=>`<div class="item">${esc(a.text)}<div class="small">${fmtDate(a.at)}</div></div>`).join('')||'<p class="muted">Aún no hay actividad.</p>';
 
   renderSubjects();renderSelects();renderFlashList();renderNotes();renderSessions();renderExamStats();
 }
-function priority(t){let m=mastery(t),novelty=t.attempts<3?20:0,stale=t.lastSeen?Math.min(25,(Date.now()-new Date(t.lastSeen))/86400000*2):25;return(100-m)+novelty+stale}
+function priority(t){const a=academicTopic(t);let m=mastery(t),novelty=a.attempts<3?20:0,stale=a.lastSeen?Math.max(0,Math.min(25,(Date.now()-new Date(a.lastSeen))/86400000*2)):25;return(100-(m??0))+novelty+stale}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 
 function openModal(id){document.getElementById(id).classList.add('open')}
@@ -846,7 +886,7 @@ function delSubject(id){if(!confirm('¿Eliminar materia y sus temas?'))return;le
 function delTopic(id){if(!confirm('¿Eliminar tema?'))return;db.topics=db.topics.filter(t=>t.id!==id);db.cards=db.cards.filter(c=>c.topicId!==id);db.questions=db.questions.filter(q=>q.topicId!==id);save()}
 function renderSubjects(){
  let w=document.getElementById('subjectsWrap');
- w.innerHTML=db.subjects.length?db.subjects.map(s=>{let ts=db.topics.filter(t=>t.subjectId===s.id);return `<div class="card" style="margin:12px 0;background:#0d121c"><div class="row" style="justify-content:space-between"><div><b>${esc(s.name)}</b><div class="small">${ts.length} temas</div></div><div class="row"><button class="btn" onclick="openTopicModal('${s.id}')">+ Tema</button><button class="btn bad" onclick="delSubject('${s.id}')">Eliminar</button></div></div><div style="margin-top:12px">${ts.map(t=>`<div class="item"><div class="row" style="justify-content:space-between"><span>${esc(t.name)}</span><span><span class="badge">${mastery(t)}%</span> <button class="btn" style="padding:4px 7px" onclick="delTopic('${t.id}')">×</button></span></div><div class="progress" style="margin-top:7px"><div style="width:${mastery(t)}%"></div></div><div class="small">${t.correct||0}/${t.attempts||0} correctas</div></div>`).join('')||'<div class="muted">Sin temas.</div>'}</div></div>`}).join(''):'<p class="muted">Crea tu primera materia.</p>';
+ w.innerHTML=db.subjects.length?db.subjects.map(s=>{let ts=db.topics.filter(t=>t.subjectId===s.id);return `<div class="card" style="margin:12px 0;background:#0d121c"><div class="row" style="justify-content:space-between"><div><b>${esc(s.name)}</b><div class="small">${ts.length} temas</div></div><div class="row"><button class="btn" onclick="openTopicModal('${s.id}')">+ Tema</button><button class="btn bad" onclick="delSubject('${s.id}')">Eliminar</button></div></div><div style="margin-top:12px">${ts.map(t=>`<div class="item"><div class="row" style="justify-content:space-between"><span>${esc(t.name)}</span><span><span class="badge">${masteryLabel(t)}</span> <button class="btn" style="padding:4px 7px" onclick="delTopic('${t.id}')">×</button></span></div><div class="progress" style="margin-top:7px"><div style="width:${mastery(t)??0}%"></div></div><div class="small">${academicTopic(t).correct}/${academicTopic(t).attempts} créditos sobre respuestas admisibles</div></div>`).join('')||'<div class="muted">Sin temas.</div>'}</div></div>`}).join(''):'<p class="muted">Crea tu primera materia.</p>';
 }
 function renderSelects(){
  let subj='<option value="">Todas</option>'+db.subjects.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
@@ -2351,7 +2391,7 @@ function renderExamStats(){
 
 function getNOACalibration(){
 
-  const answers = (db.attempts || [])
+  const answers = legacyAcademicEvidence()
     .slice(-12)
     .flatMap(attempt =>
       Array.isArray(attempt.answers)
@@ -2953,13 +2993,13 @@ function beginExamQueue(queue,label='Simulacro'){
 function startExamForTarget(target,count=10){
   if(!db.subjects.some(s=>s.name.startsWith('EXCOBA')))loadExcobaPreset(true);
   let s=findSubjectTarget(target);
-  if(s){generateQuestionsFromSyllabus();return beginExamQueue(selectQuestionsForSubject(s.id,count),`Examen de ${s.name.replace('EXCOBA Medicina · ','')}`)}
+  if(s){generateQuestionsFromSyllabus();return beginExamQueue(selectQuestionsForSubject(s.id,count),`Entrenamiento parcial de ${s.name.replace('EXCOBA Medicina · ','')}`)}
   let t=findTopicTarget(target);
   if(t){
     let pool=db.questions.filter(q=>q.topicId===t.id);
     if(!pool.length)generateQuestionsFromSyllabus();
     pool=db.questions.filter(q=>q.topicId===t.id);shuffle(pool);
-    return beginExamQueue(pool.slice(0,Math.min(count,pool.length)),`Examen de ${t.name}`);
+    return beginExamQueue(pool.slice(0,Math.min(count,pool.length)),`Entrenamiento parcial de ${t.name}`);
   }
   toast('No encontré esa materia. Carga o crea el temario primero.');
   speak('No encontré esa materia todavía. Puedes cargar el temario EXCOBA o agregar tus propios temas.');
@@ -2968,20 +3008,33 @@ function sampleBalanced(subjects,countEach){
   let out=[];subjects.forEach(s=>out.push(...selectQuestionsForSubject(s.id,countEach)));shuffle(out);return out;
 }
 function startExcobaExam(total=45){
-  loadExcobaPreset(true);generateQuestionsFromSyllabus();
-  const basic=db.subjects.filter(s=>s.source===EXCOBA_UAQ_2026.source&&s.group==='basic');
-  const spec=db.subjects.filter(s=>s.source===EXCOBA_UAQ_2026.source&&s.group==='specialty');
-  let queue=[];
-  if(total===180){
-    // Oficial: Primaria 40 (20+20), Secundaria 80 (20 x 4 áreas), Especialidad 60 (20 x 3).
-    queue=sampleBalanced([...basic,...spec],20);
-  }else{
-    // Práctica equilibrada siguiendo 30 básicos + 15 especialidad.
-    queue=sampleBalanced(basic,5).concat(sampleBalanced(spec,5));
-    shuffle(queue);
+  if(!validExamTimingConfiguration())return;
+  if(![45,180].includes(total))return toast('Modalidad de entrenamiento no soportada.');
+  const subjects=window.NOA_EXCOBA_V4?.subjects;
+  if(!Array.isArray(subjects)||subjects.length!==9)return toast('El catálogo EXCOBA aún no está disponible.');
+  const each=total===180?20:5, ids=new Map(), content=new Set(), unique=[];
+  for(const q of db.questions)if(typeof q?.id==='string')ids.set(q.id,(ids.get(q.id)||0)+1);
+  for(const q of db.questions){
+    if(!q||typeof q.id!=='string'||!q.id.trim()||q.id.trim()!==q.id||ids.get(q.id)!==1||q.interactionType&&q.interactionType!=='single_select'||
+      typeof q.text!=='string'||!q.text.trim()||!Array.isArray(q.options)||q.options.length<2||q.options.length>4||
+      !q.options.every(o=>typeof o==='string'&&o.trim())||new Set(q.options.map(o=>o.trim())).size!==q.options.length||
+      !Number.isInteger(q.correct)||q.correct<0||q.correct>=q.options.length)continue;
+    const name=subjectBy(topicBy(q.topicId)?.subjectId)?.name;
+    if(!subjects.some(s=>s.value===name)||q.subject&&q.subject!==name)continue;
+    const identity=JSON.stringify([q.text.normalize('NFC').trim().replace(/\s+/g,' '),q.options.map(o=>o.normalize('NFC').trim().replace(/\s+/g,' ')).sort()]);
+    if(content.has(identity))continue;content.add(identity);unique.push(q);
   }
-  beginExamQueue(queue,`Simulacro EXCOBA ${total}`);
+  const queue=[],missing=[];
+  for(const subject of subjects){
+    const pool=unique.filter(q=>subjectBy(topicBy(q.topicId)?.subjectId)?.name===subject.value);
+    if(pool.length<each)missing.push(subject.label+': '+pool.length+'/'+each+' (faltan '+(each-pool.length)+')');
+    queue.push(...pool.slice(0,each));
+  }
+  if(missing.length||queue.length!==total)return toast('No se inició el entrenamiento '+total+'. Faltan reactivos válidos únicos: '+missing.join('; '));
+  // Fixed documented per-subject counts imply 40/80/60 or 10/20/15. Not an official format-frequency claim.
+  shuffle(queue);beginExamQueue(queue,'Entrenamiento local '+total+' · banco manual/plantillas, sin equivalencia oficial');
 }
+
 function relevantNotes(target){
   const words=normalizeText(target).split(' ').filter(w=>w.length>3);
   return db.notes.map(n=>({n,score:words.reduce((a,w)=>a+(normalizeText(n.title+' '+n.text).includes(w)?1:0),0)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score).slice(0,5).map(x=>x.n);
@@ -3071,7 +3124,7 @@ function tellPriorities(){
   const pr=[...db.topics].sort((a,b)=>priority(b)-priority(a)).slice(0,5);
   page('dashboard','Dashboard');
   if(!pr.length)return speak('Todavía no tengo temas suficientes para calcular tus prioridades.');
-  speak('Tus prioridades de hoy son '+pr.map((t,i)=>`${i+1}, ${t.name}, dominio ${mastery(t)} por ciento`).join('. '));
+  speak('Tus prioridades de hoy son '+pr.map((t,i)=>`${i+1}, ${t.name}, rendimiento ${masteryLabel(t)}`).join('. '));
 }
 function executeCommand(raw){
   const original=String(raw||'').trim(), n=normalizeText(original).replace(/^noa\s+/,'');
@@ -3094,7 +3147,7 @@ function executeCommand(raw){
     if(n.includes('excoba')){
       if(count===180)startExcobaExam(180);else if(count===45||!m)startExcobaExam(45);else{
         loadExcobaPreset(true);
-        let all=db.questions.filter(q=>topicBy(q.topicId)?.source===EXCOBA_UAQ_2026.source);shuffle(all);beginExamQueue(all.slice(0,count),`Práctica EXCOBA ${count}`);
+        let all=db.questions.filter(q=>topicBy(q.topicId)?.source===EXCOBA_UAQ_2026.source);shuffle(all);beginExamQueue(all.slice(0,count),`Entrenamiento parcial EXCOBA ${count}`);
       }
       return;
     }

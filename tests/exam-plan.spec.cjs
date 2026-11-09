@@ -146,8 +146,8 @@ test('v25 reutiliza los cuatro perfiles v6 y conserva la dificultad final de cad
 test('v25 refleja el ciclo inicial y el adaptativo sin recalcular ni elevar la dificultad', async ({ page }) => {
   for (const sample of [0, 4, 5]) {
     const result = await page.evaluate(sample => {
-      db.attempts = sample ? [{ answers: Array.from({ length: sample }, () => ({
-        blueprint: { difficulty: 3 }, scoreFraction: 1, ok: true
+      db.attempts = sample ? [{ id:'plan-cal',evidenceKind:'student',total:sample,score:sample,answers: Array.from({ length: sample }, (_,i) => ({
+        questionId:'plan-cal-'+i,blueprint: { difficulty: 3 }, scoreFraction: 1, ok: true
       })) }] : [];
       return { plan: NOA_EXAM_PLAN_V25.build(), expected: NOA_SOURCE_BLUEPRINT.calibrationState() };
     }, sample);
@@ -315,7 +315,7 @@ test.describe('v25 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v25: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_plan.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-87$/);
+    expect(cached.name).toMatch(/:v6-88$/);
     expect(cached.v25).toBe(true);
     await context.setOffline(true);
     await page.reload();

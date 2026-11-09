@@ -364,6 +364,7 @@ test('v25 al recargar durante generación conserva el examen anterior y no prome
 });
 
 test('v25 completa 45 posiciones con crédito parcial, revisión, recuperación, resultados v23 e historial único', async ({ page }, testInfo) => {
+  await page.locator('#noaExamEvidenceKind').selectOption('student');
   test.setTimeout(90000);
   await installExam45Fixture(page, { omitTrace: true });
   accept(page);
@@ -501,7 +502,7 @@ test.describe('v25 UI45 con Service Worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, ui: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_exam_ui.js', scope).href) };
     });
-    expect(cache.name).toMatch(/:v6-87$/); expect(cache.ui).toBe(true);
+    expect(cache.name).toMatch(/:v6-88$/); expect(cache.ui).toBe(true);
     await context.setOffline(true); await page.reload();
     await page.waitForFunction(() => !!window.NOA_EXAM_UI_V25 && !!window.NOA_RESULTS_ENGINE);
     await page.locator('#nav button[data-page="exam"]').click();
