@@ -907,6 +907,7 @@ ${official}`;
 
   const originalExecuteCommand=executeCommand;
   executeCommand=function(raw){
+    if(window.handleExcobaTrainingCommand?.(raw))return;
     const n=norm(raw);
 
     if(getMaster() && /(flashcards|tarjetas)/.test(n) && /(crea|creame|hazme|genera)/.test(n)){

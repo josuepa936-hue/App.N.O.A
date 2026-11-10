@@ -528,7 +528,7 @@ test.describe('diversidad integrada con Service Worker real', () => {
       const names = (await caches.keys()).filter(name => name.startsWith('noa-mobile:' + encodeURIComponent(scope) + ':'));
       return { names, memory: !!await (await caches.open(names[0])).match(new URL('excoba_patch_v25_question_memory.js', scope).href) };
     });
-    expect(cachesState.names).toHaveLength(1); expect(cachesState.names[0]).toMatch(/:v6-88$/);
+    expect(cachesState.names).toHaveLength(1); expect(cachesState.names[0]).toMatch(/:v6-89$/);
     expect(cachesState.memory).toBe(true);
   });
 });

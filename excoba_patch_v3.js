@@ -1273,6 +1273,7 @@ beginExamQueue(
     const previous=window.executeCommand;
 
     const wrapped=function(raw){
+      if(window.handleExcobaTrainingCommand?.(raw))return;
       const text=n(raw);
       const subject=subjectFromCommand(text);
 
@@ -1281,8 +1282,9 @@ beginExamQueue(
         /(cuestionario|examen|simulacro)/.test(text) &&
         /(crea|creame|hazme|genera|prepara|inicia)/.test(text)
       ){
-        const m=text.match(/(\d{1,2})\s*(preguntas|reactivos)?/);
-        const count=m?Math.min(30,Math.max(1,parseInt(m[1]))):10;
+        const m=text.match(/\b(\d+)\b/);
+        const count=m?Number(m[1]):10;
+        if(!Number.isSafeInteger(count)||count<1||count>30){safeToast('Para 45 o 180 usa el entrenamiento EXCOBA específico; no se cambiará la cantidad solicitada.');return;}
         createQuizV3(subject,count);
         return;
       }
