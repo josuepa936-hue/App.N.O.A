@@ -494,6 +494,6 @@ test.describe('diversidad con Service Worker real', () => {
       const names = (await caches.keys()).filter(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { names, blueprint: !!await (await caches.open(names[0])).match(new URL('excoba_patch_v8_blueprint.js', scope).href) };
     });
-    expect(cache.names).toHaveLength(1); expect(cache.names[0]).toMatch(/:v6-93$/); expect(cache.blueprint).toBe(true);
+    expect(cache.names).toHaveLength(1); expect(cache.names[0]).toMatch(/:v6-94$/); expect(cache.blueprint).toBe(true);
   });
 });

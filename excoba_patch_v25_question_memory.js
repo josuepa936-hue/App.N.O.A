@@ -14,7 +14,16 @@
     return new Date(value).toISOString();
   };
   let pendingWrite = Promise.resolve();
-  let operationEpoch = 0;
+  // Allocation never rewinds. Rollback restores only the authorized epoch,
+  // allowing pre-import work to resume without reviving aborted generations.
+  let epochSequence = 0n;
+  let operationEpoch = epochSequence;
+  const generationEpochs = new WeakMap();
+  function captureGeneration(){
+    const context = Object.freeze({});
+    generationEpochs.set(context,operationEpoch);
+    return context;
+  }
   const recordTasks = new Set(), diagnosticLog = [];
 
   function reportDiagnostic(detail){
@@ -333,6 +342,8 @@
     const unique = new Map(prepared.map(item => [keyFor(item.subject,item.fingerprint), item]));
     const keys = [...unique.keys()].sort();
     return serializedWrite(() => {
+      // A revoked task must not even perform pending rollback repairs.
+      if(epoch !== operationEpoch) return {ok:false, error:'operation_superseded'};
       if(pendingBackupRollback && !repairBackupRollback()) return {ok:false, error:'rollback_failed'};
       if(epoch !== operationEpoch) return {ok:false, error:'operation_superseded'};
       const state = readStore();
@@ -369,8 +380,10 @@
     });
   }
 
-  function recordExam(questions, sessionId, options = {}){
-    return trackRecord(recordExamInternal(questions, sessionId, options, operationEpoch));
+  function recordExam(questions, sessionId, options = {}, generation = captureGeneration()){
+    const epoch = generationEpochs.get(generation);
+    if(epoch === undefined) return Promise.resolve({ok:false,error:'invalid_generation'});
+    return trackRecord(recordExamInternal(questions, sessionId, options, epoch));
   }
 
   // Timed attempts keep complete outcome records. Exposure is a separate
@@ -413,10 +426,11 @@
     return Number.isFinite(attempt.score) && Math.abs(attempt.score - credit) < 0.000001;
   }
 
-  async function registerSavedAttempt(attempt, questions){
+  async function registerSavedAttempt(attempt, questions, generation){
     const attemptId = attempt?.id;
     let result, persistedConfirmed = false;
     try{
+      if(generationEpochs.get(generation) !== operationEpoch) return {ok:false,error:'operation_superseded'};
       const stored = JSON.parse(localStorage.getItem(KEY) || 'null');
       const persisted = stored?.attempts?.find(item => item.id === attemptId);
       if(!text(attemptId) || !persisted || JSON.stringify(persisted) !== JSON.stringify(attempt)){
@@ -436,20 +450,23 @@
             return !(outcome.omitted === true && outcome.presented === false);
           });
           result = exposures.length
-            ? await window.NOA_QUESTION_MEMORY_V25_2.recordExam(exposures, 'history:' + attemptId, {seenAt:attempt.at})
+            ? await window.NOA_QUESTION_MEMORY_V25_2.recordExam(exposures, 'history:' + attemptId, {seenAt:attempt.at}, generation)
             : {ok:true, added:0, updated:0, unchanged:0, skipped:questions.length, reason:'no_exposure'};
         }
       }
     }catch{ result = {ok:false, error:'memory_exception'}; }
     if(!result || typeof result.ok !== 'boolean') result = {ok:false, error:'invalid_memory_result'};
     reportDiagnostic({operation:'record_exam', status:result.ok ? 'ok' : 'error', attemptId, error:result.error, invalid:result.invalid});
-    if(!result.ok && typeof toast === 'function') toast(
+    if(!result.ok && result.error !== 'operation_superseded' && typeof toast === 'function') toast(
       `${persistedConfirmed ? 'El resultado está guardado.' : 'No se verificó el guardado del resultado.'} Memoria del intento ${attemptId || 'desconocido'}: ${result.error}.`
     );
     return result;
   }
 
-  function recordSavedAttempt(attempt, questions){ return trackRecord(registerSavedAttempt(attempt, questions)); }
+  function recordSavedAttempt(attempt, questions, generation = captureGeneration()){
+    if(!generationEpochs.has(generation)) return Promise.resolve({ok:false,error:'invalid_generation'});
+    return trackRecord(registerSavedAttempt(attempt, questions, generation));
+  }
 
   function recent(subject, limit = 20){
     const state = readStore();
@@ -484,7 +501,7 @@
     return canonicalQuestion(question) && subjectFor(question) ? question : null;
   }
 
-  async function recoverHistory(attempts){
+  async function recoverHistoryInternal(attempts, generation){
     const state = readStore();
     if(!state.ok) return {ok:false, recovered:0, skipped:0, issues:[], error:state.error};
     const history = attempts === undefined ? (typeof db !== 'undefined' ? db.attempts : null) : attempts;
@@ -492,6 +509,7 @@
     let recovered = 0, skipped = 0;
     const issues = [];
     for(const attempt of history){
+      if(generationEpochs.get(generation) !== operationEpoch) return {ok:false,recovered,skipped,issues,error:'operation_superseded'};
       const answers = Array.isArray(attempt?.answers) ? attempt.answers : [];
       if(!text(attempt?.id) || !iso(attempt?.at) || !answers.length){
         skipped += answers.length;
@@ -515,16 +533,21 @@
         else{ skipped++; issues.push({attemptId:attempt.id, answerIndex, reason:'insufficient_content'}); }
       });
       if(!questions.length) continue;
-      const result = await recordExam(questions, 'history:' + attempt.id, {seenAt:attempt.at});
+      const result = await recordExam(questions, 'history:' + attempt.id, {seenAt:attempt.at}, generation);
       if(!result.ok){
         skipped += questions.length;
         issues.push({attemptId:attempt.id, reason:result.error});
-        if(['corrupt_storage','storage_unavailable','crypto_unavailable'].includes(result.error)){
+        if(['operation_superseded','corrupt_storage','storage_unavailable','crypto_unavailable'].includes(result.error)){
           return {ok:false, recovered, skipped, issues, error:result.error};
         }
       }else recovered += result.added + result.updated;
     }
     return {ok:true, recovered, skipped, issues};
+  }
+
+  function recoverHistory(attempts, generation = captureGeneration()){
+    if(!generationEpochs.has(generation)) return Promise.resolve({ok:false,recovered:0,skipped:0,issues:[],error:'invalid_generation'});
+    return trackRecord(recoverHistoryInternal(attempts, generation));
   }
 
   // Backup transactions share the memory lock; no call to save() is allowed here.
@@ -649,6 +672,8 @@
   function repairBackupRollback(){
     if(!pendingBackupRollback) return true;
     const previous = pendingBackupRollback;
+    // Revoke the aborted epoch even if the browser denies storage restoration.
+    operationEpoch = previous.epoch;
     let complete = true;
     for(const [key,raw] of [[storageKey,previous.memory],[KEY,previous.main]]){
       try{ restoreRawBackupValue(key,raw); }
@@ -658,7 +683,6 @@
     catch{ complete = false; }
     if(complete){
       pendingBackupRollback = null;
-      operationEpoch = previous.epoch;
     }
     return complete;
   }
@@ -669,7 +693,7 @@
     try{
       before = {main:localStorage.getItem(KEY),memory:localStorage.getItem(storageKey),epoch:operationEpoch};
     }catch{ return {ok:false,error:'storage_unavailable'}; }
-    operationEpoch++;
+    operationEpoch = ++epochSequence;
     try{
       if(replaceMemory) restoreRawBackupValue(storageKey,nextMemory);
       restoreRawBackupValue(KEY,nextMain);
@@ -842,6 +866,6 @@
     return {ok:true};
   }
 
-  window.NOA_QUESTION_MEMORY_V25_2 = {version:'25.2.2', storageKey, fingerprint, contains, recordExam, recent, stats, recoverHistory,
+  window.NOA_QUESTION_MEMORY_V25_2 = {version:'25.2.2', storageKey, fingerprint, contains, recordExam, recent, stats, recoverHistory, captureGeneration,
     recordSavedAttempt, reportDiagnostic, diagnostics:() => clone(diagnosticLog), whenIdle, createBackup, restoreBackup, resetData};
 })();

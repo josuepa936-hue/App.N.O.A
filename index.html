@@ -1452,6 +1452,7 @@ async function commitCompletedExam(options = {}){
   const sessionAnswers = examAnswers;
   const previous = noaCompletedExamCommits.get(sessionAnswers);
   if(previous) return previous;
+  const memoryGeneration = window.NOA_QUESTION_MEMORY_V25_2?.captureGeneration?.();
   const shell = window.NOA_EXAM_SHELL;
   let timing = shell?.state?.().timing || null;
   // Read before creating a closing checkpoint: a prior write may have succeeded
@@ -1604,7 +1605,7 @@ async function commitCompletedExam(options = {}){
       reportExamCommitDiagnostic({operation:'attempt_memory', error:'memory_unavailable', attemptId:attempt.id});
       resolveCommit(attempt);
     }else{
-      Promise.resolve(memory.recordSavedAttempt(attempt,questions)).then(
+      Promise.resolve(memory.recordSavedAttempt(attempt,questions,memoryGeneration)).then(
         () => resolveCommit(attempt),
         () => {
           reportExamCommitDiagnostic({operation:'attempt_memory', error:'memory_record_failed', attemptId:attempt.id});
