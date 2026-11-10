@@ -628,7 +628,7 @@
       if(raw.activeExam === null) result.activeExam = null;
       else{
         const active = cleanBackupValue(raw.activeExam);
-        if(!window.NOA_EXAM_RECOVERY?.validate?.(active)) throw new Error('invalid_active_exam');
+        if(!window.NOA_EXAM_RECOVERY?.validate?.(active,result)) throw new Error('invalid_active_exam');
         if(!window.NOA_STUDY_PROVENANCE_V27.checkpointCompatible(active,result.attempts)) throw new Error('provenance_conflict');
         result.activeExam = active;
       }

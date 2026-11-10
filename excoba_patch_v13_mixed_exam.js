@@ -388,9 +388,9 @@
 
     // Share the start contract before touching renderers, provenance or checkpoints.
     // Throwing also stops recovery before it persists an empty runtime.
-    const resolved = window.resolveExamStart?.(questions, title, intent);
+    const resolved = window.resolveExamStart?.(questions, title, intent, 'mixed');
     if(!resolved?.valid) throw new Error(resolved?.message || 'Contrato de inicio no disponible');
-    if(intent !== undefined || resolved.contract.completion === 'complete') title = resolved.label;
+    title = resolved.primaryLabel;
 
     // Validate a new timed configuration before replacing the current session.
     // Recovery restores its saved deadline instead of applying the current UI.
@@ -426,6 +426,8 @@
 
     examAnswers = [];
 
+    window.rememberExamStartContract?.(examAnswers, resolved.contract, resolved.displayName);
+
     window.NOA_STUDY_PROVENANCE_V27?.begin(examAnswers,examQueue);
 
     try{
@@ -434,6 +436,7 @@
         'exam',
         title
       );
+      window.showExamStartName?.(resolved);
 
     }catch{}
 

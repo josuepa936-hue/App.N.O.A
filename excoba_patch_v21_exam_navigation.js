@@ -226,10 +226,12 @@
             }
           }
         }
+        const startContract=window.captureExamStartContract?.(examAnswers);
         db.activeExam = {
           version:1,
           mixed,
           title:sessionTitle,
+          ...(startContract?{startContract}:{}),
           queue:clone(examQueue),
           index:examIndex,
           score:examScore,
@@ -293,7 +295,7 @@
       question.items.every(item => editor.order.includes(item.id));
   }
 
-  function validRecovery(snapshot){
+  function validRecovery(snapshot,database=db){
     if(window.NOA_STUDY_PROVENANCE_V27 && !window.NOA_STUDY_PROVENANCE_V27.valid(snapshot)) return false;
     const timing = snapshot?.clock?.timing;
     if(timing && (!Array.isArray(snapshot.queue) || !window.NOA_EXAM_SHELL.validTiming?.(timing,snapshot.queue))) return false;
@@ -303,6 +305,7 @@
       !Number.isInteger(snapshot.index) || snapshot.index < 0 || snapshot.index > snapshot.queue.length || snapshot.index === snapshot.queue.length && !closing ||
       !Number.isFinite(snapshot.score) || snapshot.score < 0 || snapshot.score > snapshot.queue.length ||
       !Array.isArray(snapshot.answers) || !Array.isArray(snapshot.drafts)) return false;
+    try{window.recoveryExamStartIntent?.(snapshot,database);}catch{return false;}
     const questions = new Map();
     for(const question of snapshot.queue){
       const type = question?.interactionType || 'single_select';
@@ -374,6 +377,7 @@
     try{
       const snapshot = clone(db.activeExam);
       if(!validRecovery(snapshot)) throw new Error('Checkpoint incompatible');
+      const startIntent=window.recoveryExamStartIntent?.(snapshot);
       const timing = snapshot.clock?.timing;
       if(timing && db.attempts.some(attempt => attempt.id === timing.attemptId)){
         if(!window.NOA_STUDY_PROVENANCE_V27.checkpointCompatible(snapshot,db.attempts)) throw new Error('provenance_conflict');
@@ -384,11 +388,15 @@
       recoveringSession = true;
       recoverySnapshot = snapshot;
       if(snapshot.mixed){
-        window.NOA_MIXED_EXAM.start(snapshot.queue, snapshot.title);
+        window.NOA_MIXED_EXAM.start(snapshot.queue, snapshot.title,startIntent);
       }else{
-        beginExamQueue(snapshot.queue, snapshot.title);
+        beginExamQueue(snapshot.queue, snapshot.title,startIntent);
       }
       recoveringSession = false;
+      if(snapshot.startContract){
+        window.restoreExamStartContract?.(examAnswers,snapshot.startContract);
+        window.showExamStartName?.({displayName:snapshot.startContract.displayName||''});
+      }
       persistSession();
       if(typeof toast === 'function') toast(timing && (timing.status !== 'open' || Date.now() >= timing.deadlineAt)
         ? 'Examen recuperado. Se está completando su cierre.' : 'Examen recuperado. Puedes continuar.');

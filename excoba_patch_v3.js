@@ -933,6 +933,8 @@ return accepted;
 
 async function generateQuestionsV3(target,count=5){
 
+  if(!Number.isSafeInteger(count)||count<1||count>30)throw new Error('La cantidad debe ser un entero entre 1 y 30; no se sustituirá por otra.');
+
   const subject=canonicalSubject(target);
 
   if(!subject){
@@ -940,11 +942,7 @@ async function generateQuestionsV3(target,count=5){
   }
 
 
-  const wanted=
-    Math.max(
-      1,
-      Math.min(30,Number(count)||5)
-    );
+  const wanted=count;
 
 
   // =====================================
@@ -1103,6 +1101,7 @@ async function generateQuestionsV3(target,count=5){
 }
 
   async function createQuizV3(target,count=10){
+    if(!Number.isSafeInteger(count)||count<1||count>30)return safeToast('La cantidad debe ser un entero entre 1 y 30; no se sustituirá por otra.');
     const m=master();
     if(!m)return safeToast('Primero importa el PDF oficial');
 
@@ -1282,7 +1281,7 @@ beginExamQueue(
         /(cuestionario|examen|simulacro)/.test(text) &&
         /(crea|creame|hazme|genera|prepara|inicia)/.test(text)
       ){
-        const quantity=window.parseExcobaTrainingCount?.(raw,10);
+        const quantity=window.readExamCommandQuantity?.(raw,10);
         if(!quantity?.valid){safeToast(quantity?.message||'No puedo interpretar la cantidad con seguridad.');return;}
         const count=quantity.count;
         if(!Number.isSafeInteger(count)||count<1||count>30){safeToast('Para 45 o 180 usa el entrenamiento EXCOBA específico; no se cambiará la cantidad solicitada.');return;}
@@ -1313,6 +1312,7 @@ beginExamQueue(
       api().createQuiz=createQuizV3;
       api().generateQuestions=generateQuestionsV3;
       api().subjects=SUBJECTS_V3.map(x=>x.value);
+      api().classifyExamCommandSubject=subjectFromCommand;
     }
 
     // También corrige cualquier flujo de NOA que use generateAIQuestions().
