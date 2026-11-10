@@ -368,7 +368,8 @@
   function start(
     questions,
     title =
-      'Simulacro EXCOBA mixto'
+      'Simulacro EXCOBA mixto',
+    intent
   ){
 
     if(
@@ -384,6 +385,12 @@
 
     }
 
+
+    // Share the start contract before touching renderers, provenance or checkpoints.
+    // Throwing also stops recovery before it persists an empty runtime.
+    const resolved = window.resolveExamStart?.(questions, title, intent);
+    if(!resolved?.valid) throw new Error(resolved?.message || 'Contrato de inicio no disponible');
+    if(intent !== undefined || resolved.contract.completion === 'complete') title = resolved.label;
 
     // Validate a new timed configuration before replacing the current session.
     // Recovery restores its saved deadline instead of applying the current UI.

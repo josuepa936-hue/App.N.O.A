@@ -549,7 +549,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
         <p class="small">NOA prioriza preguntas de temas con menor dominio. Puedes usar preguntas manuales y generadas.</p>
         <div class="field" style="margin-top:14px">
           <label for="noaExamEvidenceKind">Procedencia del próximo simulacro</label>
-          <select id="noaExamEvidenceKind" autocomplete="off" aria-describedby="noaExamEvidenceHelp">
+          <select id="noaExamEvidenceKind" autocomplete="off" aria-describedby="noaExamEvidenceHelp" style="min-width:0;width:100%;max-width:100%">
             <option value="unknown" selected>Sin declaración · procedencia desconocida</option>
             <option value="student">Declaro que iniciaré una sesión de estudio</option>
             <option value="technical_test">Prueba técnica · sin evidencia académica</option>
@@ -2985,7 +2985,7 @@ function resolveExamStart(queue,legacyLabel='Simulacro',intent){
       intent={version:1,mode:'excoba-local',requestedCount:180,completion:'complete'};
     }else{
       // Text may veto an unsafe legacy call; it never authorizes a complete mode.
-      if(availableCount>=180||typeof legacyLabel!=='string'||/\b180\b|\bcomplet(?:o|a|os|as)\b|\boficial\b|\bcertificad[oa]\b/.test(normalizeText(legacyLabel)))
+      if(availableCount>=180||typeof legacyLabel!=='string'||/\b180\b|\bciento\s+ochenta\b|\bcomplet(?:o|a|os|as)\b|\boficial\b|\bcertificad[oa]\b/.test(normalizeText(legacyLabel)))
         return reject('Inicio rechazado: la modalidad completa requiere un contrato válido.');
       intent={version:1,mode:'legacy-partial',requestedCount:availableCount,completion:'partial'};
     }
@@ -3082,15 +3082,36 @@ function startExcobaExam(total=45){
   shuffle(queue);return beginExamQueue(queue,'Simulacro',{version:1,mode:'excoba-local',requestedCount:total,completion:'complete'});
 }
 function parseExcobaTrainingCount(raw,defaultCount=45){
-  const text=String(raw??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  let text=String(raw??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[−﹣－–—]/g,'-').replace(/([+-])\s+(?=\d|[a-z])/g,'$1');
+  const reject=message=>({valid:false,quantityState:'unrecognized',message});
+  const admittedWords={'cinco':5,'diez':10,'quince':15,'veinte':20,'cuarenta y cinco':45,'ciento ochenta':180};
+  // A finite lexicon recognizes numeric expressions without inferring their meaning.
+  // Unsupported compounds remain present quantities, never an absent quantity.
+  const atoms='cero un uno una dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciseis diecisiete dieciocho diecinueve veinte veintiuno veintiuna veintidos veintitres veinticuatro veinticinco veintiseis veintisiete veintiocho veintinueve treinta cuarenta cincuenta sesenta setenta ochenta noventa cien ciento cientos cientas doscientos doscientas trescientos trescientas cuatrocientos cuatrocientas quinientos quinientas seiscientos seiscientas setecientos setecientas ochocientos ochocientas novecientos novecientas mil miles millon millones billon billones docena docenas medio media par menos mas'.split(' ').join('|');
+  const wordPattern=new RegExp('\\b(?:'+atoms+')(?:\\s+(?:y\\s+)?(?:'+atoms+'))*\\b','g');
+  let unknownWords=false;
+  text=text.replace(wordPattern,(phrase,offset)=>{
+    const prefix=text.slice(0,offset);
+    if(/^(?:un|una)$/.test(phrase)&&/^\s+(?:examen|simulacro|cuestionario|sesion|intento|tema|subtema|materia|grupo|nivel|ano|version)\b/.test(text.slice(offset+phrase.length)))return phrase;
+    if(/\b(?:sesion|intento|ano|fecha|tema|subtema|materia|capitulo|grupo|nivel|version)\s*(?:numero\s*)?[:#=]?\s*$/.test(prefix))return '0';
+    const key=phrase.replace(/\s+/g,' ');
+    if(Object.prototype.hasOwnProperty.call(admittedWords,key))return String(admittedWords[key]);
+    unknownWords=true;return 'cantidad-desconocida';
+  });
+  if(unknownWords)return reject('Cantidad presente pero no admitida o no interpretable. Indica 5, 10, 15, 20, 45 o 180 preguntas.');
   const explicit=[],ranges=[];
   const remember=(match,group)=>{const value=match[group].replace(',','.');explicit.push(Number(value));ranges.push([match.index,match.index+match[0].length]);};
   for(const m of text.matchAll(/(^|[^\p{L}\p{N}_.])([+-]?\d+(?:[.,]\d+)?)\s*(preguntas?|reactivos?)\b/gu))remember(m,2);
   for(const m of text.matchAll(/\b(?:preguntas?|reactivos?)\s*(?:[:=]|de)?\s*([+-]?\d+(?:[.,]\d+)?)(?![\p{L}\p{N}_])/gu))remember(m,1);
+  // Mentioning a unit with an unrecognized amount is not permission to use45.
+  for(const m of text.matchAll(/\b(?:preguntas?|reactivos?)\b/g)){
+    if(!ranges.some(([a,b])=>m.index>=a&&m.index+m[0].length<=b))
+      return reject('No puedo interpretar la cantidad de preguntas o reactivos. Indica una sola cantidad admitida.');
+  }
   const context=[];
   for(const pattern of [/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/g,/\b\d{1,2}[/.]\d{1,2}[/.]\d{4}\b/g,
     /\b(?:v|version)\s*\d+(?:\.\d+)*\b/g,
-    /\b(?:sesion|intento|ano|fecha|tema|subtema|capitulo|grupo|nivel|version)\s*(?:numero\s*)?[:#=]?\s*[+-]?\d+(?:[.,]\d+)*/g]){
+    /\b(?:sesion|intento|ano|fecha|tema|subtema|materia|capitulo|grupo|nivel|version)\s*(?:numero\s*)?[:#=]?\s*[+-]?\d+(?:[.,]\d+)*/g]){
     for(const m of text.matchAll(pattern))context.push([m.index,m.index+m[0].length]);
   }
   const remaining=[];let unmarkedYear=false;
@@ -3101,19 +3122,29 @@ function parseExcobaTrainingCount(raw,defaultCount=45){
     remaining.push({value:Number(m[0].replace(',','.')),start:m.index,end});
   }
   if(unmarkedYear||new Set(explicit).size>1||explicit.length&&remaining.length||!explicit.length&&remaining.length>1)
-    return {valid:false,message:'Cantidad ambigua. Indica una sola cantidad de preguntas o reactivos.'};
+    return reject('Cantidad ambigua. Indica una sola cantidad de preguntas o reactivos.');
   if(!explicit.length&&remaining.length){
     const token=remaining[0],prefix=text.slice(0,token.start),next=text[token.end]||'';
     if(!/(?:\bexcoba(?:\s+de)?|\b(?:practica|practicar|repasa|repasar|entrena|examen|simulacro|cuestionario)(?:\s+de)?)\s*$/.test(prefix)||/[a-z0-9_]/.test(next))
-      return {valid:false,message:'Cantidad ambigua. Indica la cantidad seguida de preguntas o reactivos.'};
+      return reject('Cantidad ambigua. Indica la cantidad seguida de preguntas o reactivos.');
   }
   const count=explicit.length?explicit[0]:remaining.length?remaining[0].value:defaultCount;
-  if(![5,10,15,20,45,180].includes(count))return {valid:false,message:'Cantidad no soportada. Disponibles: 5, 10, 15, 20, 45 o 180 reactivos.'};
-  return {valid:true,count,source:explicit.length?'explicit':remaining.length?'abbreviated':'default'};
+  if(!explicit.length&&!remaining.length&&/\bexcoba\b/.test(text)){
+    const residue=text.split('').map((ch,i)=>context.some(([a,b])=>i>=a&&i<b)?' ':ch).join('')
+      .replace(/\b(?:noa|practica|practicar|repasa|repasar|entrena|entrenar|inicia|iniciar|crea|creame|hazme|genera|prepara|examen|simulacro|cuestionario|excoba|un|una|el|la|los|las|de|del|al|para|por|con|mi|mis|tu|su|hoy|manana|favor|version)\b/g,'')
+      .replace(/[\s.,:;!?¡¿#=]/g,'');
+    if(residue)return reject('No puedo distinguir la cantidad solicitada. Indica una cantidad admitida o pide practica EXCOBA sin cantidad.');
+  }
+  if(![5,10,15,20,45,180].includes(count))return reject('Cantidad no soportada. Disponibles: 5, 10, 15, 20, 45 o 180 reactivos.');
+  return {valid:true,count,quantityState:explicit.length||remaining.length?'recognized':'absent',source:explicit.length?'explicit':remaining.length?'abbreviated':'default'};
 }
 function handleExcobaTrainingCommand(raw){
   const text=normalizeText(raw);
-  if(!text.includes('excoba')||!/(practica|repasa|entrena|examen|simulacro|cuestionario)/.test(text))return false;
+  // An abbreviated practice order needs an explicitly selected canonical subject.
+  const selected=subjectBy(document.getElementById('examSubject')?.value)?.name;
+  const contextual=window.NOA_EXCOBA_V4?.subjects?.some(s=>s.value===selected)&&
+    /^(?:noa\s+)?(?:sesion\s+(?:\d+|cinco|diez|quince|veinte)\s+)?(?:practica|repasa|entrena)\s+(?:de\s+)?(?:\d+|cinco|diez|quince|veinte|cuarenta y cinco|ciento ochenta)\s+(?:preguntas?|reactivos?)$/.test(text);
+  if((!text.includes('excoba')&&!contextual)||!/(practica|repasa|entrena|examen|simulacro|cuestionario|preguntas?|reactivos?)/.test(text))return false;
   if(/flashcards|tarjetas|guia|temario/.test(text)){toast('Orden ambigua: indica si deseas un examen, tarjetas o consultar el temario.');return true;}
   const quantity=parseExcobaTrainingCount(raw);
   if(!quantity.valid){toast(quantity.message);return true;}
