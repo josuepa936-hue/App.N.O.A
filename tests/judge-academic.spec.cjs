@@ -251,7 +251,7 @@ test('Judge muestra métricas específicas y fuentes históricas sin alterar res
   await expect(page.locator('[data-noa-judge-source-metric="source_match"]')).toContainText('9.6/10');
   const completed = await snapshot(page);
   expect(completed.attempts).toHaveLength(1);
-  expect(completed.calibration.sample).toBe(4);
+  expect(completed.calibration.sample).toBe(0); // No explicit student declaration in this fixture.
   expect(completed.attempts[0].answers.map(answer => answer.judge)).toEqual(queue.map(question => question.judge));
   page.judgeBeforeReloadEvidence = await judgeEvidence(page);
   await page.reload();

@@ -226,10 +226,12 @@
             }
           }
         }
+        const startContract=window.captureExamStartContract?.(examAnswers);
         db.activeExam = {
           version:1,
           mixed,
           title:sessionTitle,
+          ...(startContract?{startContract}:{}),
           queue:clone(examQueue),
           index:examIndex,
           score:examScore,
@@ -293,7 +295,7 @@
       question.items.every(item => editor.order.includes(item.id));
   }
 
-  function validRecovery(snapshot){
+  function validRecovery(snapshot,database=db){
     if(window.NOA_STUDY_PROVENANCE_V27 && !window.NOA_STUDY_PROVENANCE_V27.valid(snapshot)) return false;
     const timing = snapshot?.clock?.timing;
     if(timing && (!Array.isArray(snapshot.queue) || !window.NOA_EXAM_SHELL.validTiming?.(timing,snapshot.queue))) return false;
@@ -303,6 +305,7 @@
       !Number.isInteger(snapshot.index) || snapshot.index < 0 || snapshot.index > snapshot.queue.length || snapshot.index === snapshot.queue.length && !closing ||
       !Number.isFinite(snapshot.score) || snapshot.score < 0 || snapshot.score > snapshot.queue.length ||
       !Array.isArray(snapshot.answers) || !Array.isArray(snapshot.drafts)) return false;
+    try{window.recoveryExamStartIntent?.(snapshot,database);}catch{return false;}
     const questions = new Map();
     for(const question of snapshot.queue){
       const type = question?.interactionType || 'single_select';
@@ -374,6 +377,7 @@
     try{
       const snapshot = clone(db.activeExam);
       if(!validRecovery(snapshot)) throw new Error('Checkpoint incompatible');
+      const startIntent=window.recoveryExamStartIntent?.(snapshot);
       const timing = snapshot.clock?.timing;
       if(timing && db.attempts.some(attempt => attempt.id === timing.attemptId)){
         if(!window.NOA_STUDY_PROVENANCE_V27.checkpointCompatible(snapshot,db.attempts)) throw new Error('provenance_conflict');
@@ -384,11 +388,15 @@
       recoveringSession = true;
       recoverySnapshot = snapshot;
       if(snapshot.mixed){
-        window.NOA_MIXED_EXAM.start(snapshot.queue, snapshot.title);
+        window.NOA_MIXED_EXAM.start(snapshot.queue, snapshot.title,startIntent);
       }else{
-        beginExamQueue(snapshot.queue, snapshot.title);
+        beginExamQueue(snapshot.queue, snapshot.title,startIntent);
       }
       recoveringSession = false;
+      if(snapshot.startContract){
+        window.restoreExamStartContract?.(examAnswers,snapshot.startContract);
+        window.showExamStartName?.({displayName:snapshot.startContract.displayName||''});
+      }
       persistSession();
       if(typeof toast === 'function') toast(timing && (timing.status !== 'open' || Date.now() >= timing.deadlineAt)
         ? 'Examen recuperado. Se está completando su cierre.' : 'Examen recuperado. Puedes continuar.');
@@ -402,6 +410,44 @@
       recoverySnapshot = null;
       recoveringSession = false;
     }
+  }
+
+  // A backup may fail after replacing storage. Keep a private live snapshot,
+  // including the current editor, so rollback does not depend on a stale save.
+  // Creating this closure performs no writes, rendering or clock transitions.
+  function prepareBackupRollback(){
+    const queue=examQueue, answers=examAnswers, index=examIndex, score=examScore;
+    const clock=clone(window.NOA_EXAM_SHELL.state());
+    const savedDrafts=clone([...drafts]);
+    let snapshot=null;
+    if(queue.length && index<queue.length){
+      const currentDrafts=new Map(savedDrafts);
+      const editor=editorSnapshot(currentQuestion());
+      if(editor && !answerFor(currentQuestion())){
+        const key=questionKey(currentQuestion(),index);
+        currentDrafts.set(key,{...currentDrafts.get(key),...editor});
+      }
+      const contract=window.captureExamStartContract?.(answers);
+      snapshot={version:1,mixed:mixedState().mixedMode,title:sessionTitle,
+        ...(contract?{startContract:contract}:{}),queue:clone(queue),index,score,
+        answers:clone(answers),drafts:clone([...currentDrafts]),clock,
+        ...(window.NOA_STUDY_PROVENANCE_V27?.capture(answers,queue)||{evidenceKind:'unknown'}),
+        revision:window.NOA_ANSWER_REVISION?.capture?.()||null};
+      if(!validRecovery(snapshot))throw new Error('No se puede proteger la sesión actual');
+    }
+    const active=db.activeExam, hadActive=Object.hasOwn(db,'activeExam');
+    return () => {
+      if(snapshot){
+        db.activeExam=clone(snapshot);
+        try{if(!recoverSession())throw new Error('No se pudo restaurar la sesión anterior');}
+        finally{if(hadActive)db.activeExam=active;else delete db.activeExam;}
+      }else{
+        examQueue=queue;examAnswers=answers;examIndex=index;examScore=score;
+        drafts.clear();for(const [key,value] of savedDrafts)drafts.set(key,clone(value));
+        window.NOA_EXAM_SHELL.restore(clock,{sync:false});
+        renderExam();
+      }
+    };
   }
 
 
@@ -2678,6 +2724,7 @@
     save:persistSession,
     recover:recoverSession,
     validate:validRecovery,
+    prepareBackupRollback,
     state:() => ({saved:!!db.activeExam, recovering:recoveringSession})
   };
 

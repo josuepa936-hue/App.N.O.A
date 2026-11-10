@@ -18,6 +18,8 @@ for (const [mode, credits] of [
   ['full', [1, 1, 1, 1]], ['partial', [1, .5, .5, .5]], ['zero', [0, 0, 0, 0]]
 ]) {
   test(`cuatro formatos: puntuación ${mode}, resultados v23 y Calibrator`, async ({ page }) => {
+    await page.locator('#nav button[data-page="exam"]').click();
+    await page.locator('#noaExamEvidenceKind').selectOption('student');
     await start(page);
     for (let index = 0; index < questions.length; index++) {
       await navigate(page, index);
@@ -206,14 +208,18 @@ test('Calibrator usa ventanas de 12 intentos y 60 respuestas; Blueprint adapta d
   // Se ejecutan los motores reales con historial sintético aislado; este caso
   // no pretende completar trece exámenes mediante la interfaz.
   const result = await page.evaluate(() => {
+    const measured = () => {
+      db.attempts.forEach((a,i)=>{a.id='cal-'+i;a.evidenceKind='student';a.total=a.answers.length;a.score=a.answers.reduce((n,r)=>n+r.scoreFraction,0);a.answers.forEach((r,j)=>r.questionId='cal-'+i+'-'+j);});
+      return NOA_CALIBRATOR.get();
+    };
     const answer = (level, scoreFraction) => ({ blueprint: { difficulty: level }, scoreFraction, ok: scoreFraction === 1 });
     db = blank();
     db.masterSyllabus = { id: 'uaq-excoba-2026-2-medicina', items: [{ subject: 'EXCOBA Secundaria · Matemáticas', code: '2.2.1', title: 'Punto sintético', focus: 'Aritmética', page: 1 }] };
     db.attempts = [{ answers: [answer(5, 1)] }, ...Array.from({ length: 12 }, () => ({ answers: [answer(1, 0)] }))];
-    const last12 = NOA_CALIBRATOR.get();
+    const last12 = measured();
     db.attempts = [{ answers: [...Array.from({ length: 40 }, () => answer(1, 1)), ...Array.from({ length: 60 }, () => answer(4, 2 / 3))] }];
-    const last60 = NOA_CALIBRATOR.get();
-    const profile = () => ({ cal: NOA_CALIBRATOR.get(), blueprint: NOA_SOURCE_BLUEPRINT.build({ subject: 'EXCOBA Secundaria · Matemáticas', count: 10 }) });
+    const last60 = measured();
+    const profile = () => ({ cal: measured(), blueprint: NOA_SOURCE_BLUEPRINT.build({ subject: 'EXCOBA Secundaria · Matemáticas', count: 10 }) });
     db.attempts = [{ answers: Array.from({ length: 4 }, () => answer(3, 1)) }];
     const sample4 = profile();
     db.attempts[0].answers.push(answer(3, 1));

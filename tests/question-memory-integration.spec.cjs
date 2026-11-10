@@ -62,7 +62,7 @@ for (const count of [5, 10, 45]) {
     expect(saved.entries.every(entry => entry.timesSeen === 1 && entry.sessionId === 'history:' + attempt.id)).toBe(true);
     expect(attempt).toMatchObject({ score: count - .5, total: count });
     expect(saved.answers).toHaveLength(count);
-    expect(saved.calibration.sample).toBe(count);
+    expect(saved.calibration.sample).toBe(0); // No explicit student declaration in this fixture.
     expect(await page.evaluate(() => db.topics.reduce((sum, topic) => sum + topic.attempts, 0))).toBe(count);
     await testInfo.attach(`examen-finalizado-memoria-${count}`, { body: JSON.stringify({ queue, attempt,
       entries: saved.entries, stats: saved.stats, calls: saved.calls, calibration: saved.calibration }, null, 2), contentType: 'application/json' });
@@ -103,7 +103,7 @@ test('memoria no registra cambios de respuesta o revisión antes del intento fin
   const completed = await state(page);
   expect(completed.stats).toMatchObject({ uniqueQuestions: 4, totalSeen: 4, sessions: 1 });
   expect(completed.calls).toHaveLength(1);
-  expect(completed.calibration.sample).toBe(4);
+  expect(completed.calibration.sample).toBe(0); // No explicit student declaration in this fixture.
   expect(completed.score).toBe(3.5);
 });
 
@@ -173,7 +173,7 @@ test('memoria fallida conserva el intento persistido, puntuación y diagnóstico
   expect(result.db.attempts).toHaveLength(1);
   expect(JSON.parse(result.rawDb).attempts).toHaveLength(1);
   expect(result.rawMemory).toBeNull();
-  expect(result.calibration.sample).toBe(4);
+  expect(result.calibration.sample).toBe(0); // No explicit student declaration in this fixture.
   expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ attemptId: result.db.attempts[0].id, error: 'storage_unavailable' })]));
   await expect(page.locator('#examBox > h2')).toHaveText('Resultado: 4 / 4');
 });
@@ -460,7 +460,7 @@ test.describe('integración de memoria con Service Worker real', () => {
       const names = (await caches.keys()).filter(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { names, memory: !!await (await caches.open(names[0])).match(new URL('excoba_patch_v25_question_memory.js', scope).href) };
     });
-    expect(cached.names).toHaveLength(1); expect(cached.names[0]).toMatch(/:v6-87$/); expect(cached.memory).toBe(true);
+    expect(cached.names).toHaveLength(1); expect(cached.names[0]).toMatch(/:v6-94$/); expect(cached.memory).toBe(true);
     await context.setOffline(true); await page.reload();
     await page.waitForFunction(() => !!window.NOA_QUESTION_MEMORY_V25_2);
     await installAttemptSpy(page); await start(page, memoryQuestions); await answerAll(page, memoryQuestions); await finish(page);

@@ -164,7 +164,7 @@ test('pendientes distingue omisiones, dominio y exposición visitada', async ({ 
   expect(attempt.answers.map(answer => answer.presented)).toEqual([true, true, false, false]);
   expect(result.topics).toEqual(before.topics); expect(result.topics[0].attempts).toBe(0);
   expect(result.memory).toMatchObject({ uniqueQuestions: 2, totalSeen: 2, sessions: 1 });
-  expect(result.calibration.sample).toBe(4);
+  expect(result.calibration.sample).toBe(0); // No explicit student declaration in this fixture.
   await expect(page.locator('[data-noa-result-status="omitted"]')).toHaveCount(4);
   await testInfo.attach('omisiones-y-exposicion', { body: JSON.stringify({ attempt, topics: result.topics, memory: result.memory, entries: result.entries }, null, 2), contentType: 'application/json' });
 });
@@ -462,7 +462,7 @@ test.describe('cronómetro con Service Worker real', () => {
       const scope = (await navigator.serviceWorker.getRegistration()).scope;
       return (await caches.keys()).filter(name => name.startsWith('noa-mobile:' + encodeURIComponent(scope) + ':'));
     });
-    expect(names).toHaveLength(1); expect(names[0]).toMatch(/:v6-87$/);
+    expect(names).toHaveLength(1); expect(names[0]).toMatch(/:v6-94$/);
   });
 });
 
