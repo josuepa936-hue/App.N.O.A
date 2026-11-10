@@ -2645,7 +2645,9 @@ document.getElementById('backupInput').onchange = async event => {
     const payload = JSON.parse(await file.text());
     const memory = window.NOA_QUESTION_MEMORY_V25_2;
     const result = memory?.restoreBackup ? await memory.restoreBackup(payload) : {ok:false,error:'memory_unavailable'};
-    toast(result.ok ? 'Copia restaurada' : 'No se pudo restaurar la copia: ' + result.error);
+    toast(result.ok ? 'Copia restaurada' : result.rollbackFailed
+      ? 'Restauración incompleta: conserva esta pestaña y tu respaldo. No continúes el examen hasta recuperar el estado anterior.'
+      : 'No se pudo restaurar la copia: ' + result.error);
   }catch{ toast('Archivo de copia inválido; no se restauraron datos.'); }
   finally{ event.target.value = ''; }
 };
@@ -3007,7 +3009,13 @@ function captureExamStartContract(answers){
   const value=examStartContracts.get(answers);return value?{...value}:undefined;
 }
 function recoveryExamStartIntent(snapshot,database=db){
-  if(!Object.hasOwn(snapshot,'startContract'))return undefined;
+  // Legacy absence is not approval: preflight exactly the same recovery mode,
+  // title and proposed catalog as the eventual start, without changing runtime.
+  if(!Object.hasOwn(snapshot,'startContract')){
+    const resolved=resolveExamStart(snapshot.queue,snapshot.title,undefined,snapshot.mixed?'mixed':'manual',database,true);
+    if(!resolved.valid)throw new Error(resolved.message);
+    return undefined;
+  }
   const value=snapshot.startContract,keys=['version','mode','requestedCount','availableCount','completion','allowShortfall','displayName'];
   if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!keys.includes(k))||
     value.version!==1||!Number.isSafeInteger(value.availableCount)||value.availableCount!==snapshot.queue.length||typeof value.allowShortfall!=='boolean'||
@@ -3019,7 +3027,7 @@ function recoveryExamStartIntent(snapshot,database=db){
   return intent;
 }
 function restoreExamStartContract(answers,contract){examStartContracts.set(answers,Object.freeze({...contract}));}
-function resolveExamStart(queue,legacyLabel='Simulacro',intent,presentation='manual',database=db){
+function resolveExamStart(queue,legacyLabel='Simulacro',intent,presentation='manual',database=db,recovering=window.NOA_EXAM_RECOVERY?.state?.().recovering===true){
   const reject=message=>({valid:false,message});
   const suppliedIntent=intent!==undefined;
   if(!['manual','mixed'].includes(presentation))return reject('Presentación de examen inválida.');
@@ -3028,9 +3036,9 @@ function resolveExamStart(queue,legacyLabel='Simulacro',intent,presentation='man
   const titleClaim=inspectExamTitle(legacyLabel);
   if(intent===undefined){
     if(titleClaim.numericUnknown||titleClaim.counts.some(n=>n!==availableCount))return reject('Inicio rechazado: el título y la cantidad disponible son incompatibles.');
-    if(window.NOA_EXAM_RECOVERY?.state?.().recovering&&availableCount===180){
+    if(recovering&&availableCount===180){
       intent={version:1,mode:'excoba-local',requestedCount:180,completion:'complete'};
-    }else if(window.NOA_EXAM_RECOVERY?.state?.().recovering&&availableCount===45&&validateLocalExcobaQueue(queue,45,database).valid){
+    }else if(recovering&&availableCount===45&&validateLocalExcobaQueue(queue,45,database).valid){
       // Legacy snapshots do not prove the original mode: restore their verified
       // 45-item queue as descriptive practice, never infer a complete mode from text.
       intent={version:1,mode:presentation==='mixed'?'mixed':'legacy-partial',requestedCount:45,completion:'partial'};

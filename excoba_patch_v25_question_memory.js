@@ -676,7 +676,7 @@
       if(localStorage.getItem(KEY) !== nextMain || replaceMemory && localStorage.getItem(storageKey) !== nextMemory){
         throw new Error('storage_verification_failed');
       }
-      return {ok:true};
+      return {ok:true,before};
     }catch{
       pendingBackupRollback = before;
       const recovered = repairBackupRollback();
@@ -684,20 +684,31 @@
     }
   }
 
-  function applyBackupRuntime(nextDb, restoreActive){
+  function applyBackupRuntime(nextDb, restoreActive, resetFocus = true){
     db = nextDb;
     window.NOA_MIXED_EXAM?.stop?.();
     window.NOA_EXAM_SHELL?.deactivate?.();
     examQueue = []; examIndex = 0; examScore = 0; examAnswers = [];
     reviewQueue = []; reviewIndex = 0;
     window.NOA_EXAM_NAVIGATION?.drafts?.clear?.();
-    if(typeof resetTimer === 'function') resetTimer();
+    if(resetFocus && typeof resetTimer === 'function') resetTimer();
     if(typeof renderAll === 'function') renderAll();
     if(typeof loadAISettingsUI === 'function') loadAISettingsUI();
     if(typeof renderAISettingsVisibility === 'function') renderAISettingsVisibility();
     if(restoreActive && db.activeExam){
       if(!window.NOA_EXAM_RECOVERY?.recover?.()) throw new Error('active_exam_recovery_failed');
     }else if(typeof renderExam === 'function') renderExam();
+  }
+
+  function backupRuntimeMatches(){
+    const active=db.activeExam;
+    if(!active)return !examQueue.length||examIndex>=examQueue.length;
+    const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    return active.index===examIndex&&active.score===examScore&&
+      active.mixed===window.NOA_MIXED_EXAM.state().mixedMode&&
+      same(active.queue,examQueue)&&same(active.answers,examAnswers)&&
+      same(active.clock?.timing||null,window.NOA_EXAM_SHELL.state().timing||null)&&
+      window.NOA_STUDY_PROVENANCE_V27.kind(active)===window.NOA_STUDY_PROVENANCE_V27.capture(examAnswers,examQueue).evidenceKind;
   }
 
   async function createBackup(){
@@ -749,21 +760,58 @@
       return {ok:false,error:'generation_in_progress'};
     }
     const nextDb = Object.assign(blank(),academic);
-    nextDb.settings = Object.assign(blank().settings,academic.settings);
+    // Same defaults as Temario's ensureMasterStore() and v6 ensureSourceDB(), prepared
+    // before writing so read-side initialization cannot desynchronize storage.
+    nextDb.settings = Object.assign(blank().settings,{strictSyllabus:true,noaTrainingProfile:'official'},academic.settings);
+    if(!own(nextDb,'masterSyllabus'))nextDb.masterSyllabus=null;
     const result = await serializedWrite(() => {
       if(backupGenerationActive()) return {ok:false,error:'generation_in_progress'};
+      if(!repairBackupRollback()) return {ok:false,error:'rollback_failed',rollbackFailed:true};
+      const previousDb=db, previousReview=reviewQueue, previousReviewIndex=reviewIndex;
+      const previousPage=document.querySelector('.section.active')?.id;
+      const previousTitle=document.getElementById('pageTitle')?.textContent;
+      const evidenceInput=document.getElementById('noaExamEvidenceKind'), previousSelection=evidenceInput?.value;
+      let restoreSession;
+      try{restoreSession=window.NOA_EXAM_RECOVERY.prepareBackupRollback();}
+      catch{return {ok:false,error:'runtime_snapshot_failed'};}
       const committed = backupStorageTransaction(JSON.stringify(nextDb),memoryRaw,hasMemory);
-      if(committed.ok) db = nextDb;
-      return committed;
+      if(!committed.ok)return committed;
+      try{
+        applyBackupRuntime(nextDb,true,false);
+        // Recovery can legitimately finish an expired imported exam. In either
+        // case its final database must agree with the durable representation.
+        if(!backupRuntimeMatches()||localStorage.getItem(KEY)!==JSON.stringify(db)||
+          hasMemory&&localStorage.getItem(storageKey)!==memoryRaw)throw new Error('runtime_storage_mismatch');
+        if(typeof resetTimer==='function')resetTimer();
+        return {ok:true};
+      }catch(error){
+        backupDiagnostic('backup_restore_runtime',String(error?.message||'runtime_refresh_failed'));
+        pendingBackupRollback=committed.before;
+        db=previousDb;reviewQueue=previousReview;reviewIndex=previousReviewIndex;
+        let storageRestored=repairBackupRollback(), runtimeRestored=false;
+        try{
+          restoreSession();
+          runtimeRestored=true;
+        }catch{ /* Originals remain in RAM even if rendering is unavailable. */ }
+        try{renderAll();loadAISettingsUI();renderAISettingsVisibility();}catch{}
+        try{
+          if(previousPage)page(previousPage,previousTitle);
+          if(evidenceInput)evidenceInput.value=previousSelection;
+        }catch{ /* UI failures must not skip the final storage rollback. */ }
+        // Recovery shares normal checkpoint writes; restore the exact original
+        // bytes last, and fence any work created by the rejected session.
+        pendingBackupRollback=committed.before;
+        storageRestored=repairBackupRollback();
+        if(!storageRestored||!runtimeRestored){
+          if(typeof toast==='function')toast('No se pudo restaurar completamente el estado anterior. Conserva esta pestaña y tu respaldo; no continúes el examen hasta recuperar los datos.');
+          return {ok:false,error:'rollback_failed',rollbackFailed:true,storageRestored,runtimeRestored};
+        }
+        return {ok:false,error:'runtime_refresh_failed',rolledBack:true};
+      }
     });
     if(!result.ok){
       backupDiagnostic('backup_restore',result.error,{rollbackFailed:!!result.rollbackFailed});
       return result;
-    }
-    try{ applyBackupRuntime(nextDb,true); }
-    catch(error){
-      backupDiagnostic('backup_restore','runtime_refresh_failed',{committed:true,detail:String(error?.message || error)});
-      return {ok:false,error:'runtime_refresh_failed',committed:true};
     }
     reportDiagnostic({operation:'backup_restore',status:'ok',memoryIncluded:hasMemory});
     return {ok:true,memoryIncluded:hasMemory};

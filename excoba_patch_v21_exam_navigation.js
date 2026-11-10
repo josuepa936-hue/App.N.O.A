@@ -412,6 +412,44 @@
     }
   }
 
+  // A backup may fail after replacing storage. Keep a private live snapshot,
+  // including the current editor, so rollback does not depend on a stale save.
+  // Creating this closure performs no writes, rendering or clock transitions.
+  function prepareBackupRollback(){
+    const queue=examQueue, answers=examAnswers, index=examIndex, score=examScore;
+    const clock=clone(window.NOA_EXAM_SHELL.state());
+    const savedDrafts=clone([...drafts]);
+    let snapshot=null;
+    if(queue.length && index<queue.length){
+      const currentDrafts=new Map(savedDrafts);
+      const editor=editorSnapshot(currentQuestion());
+      if(editor && !answerFor(currentQuestion())){
+        const key=questionKey(currentQuestion(),index);
+        currentDrafts.set(key,{...currentDrafts.get(key),...editor});
+      }
+      const contract=window.captureExamStartContract?.(answers);
+      snapshot={version:1,mixed:mixedState().mixedMode,title:sessionTitle,
+        ...(contract?{startContract:contract}:{}),queue:clone(queue),index,score,
+        answers:clone(answers),drafts:clone([...currentDrafts]),clock,
+        ...(window.NOA_STUDY_PROVENANCE_V27?.capture(answers,queue)||{evidenceKind:'unknown'}),
+        revision:window.NOA_ANSWER_REVISION?.capture?.()||null};
+      if(!validRecovery(snapshot))throw new Error('No se puede proteger la sesión actual');
+    }
+    const active=db.activeExam, hadActive=Object.hasOwn(db,'activeExam');
+    return () => {
+      if(snapshot){
+        db.activeExam=clone(snapshot);
+        try{if(!recoverSession())throw new Error('No se pudo restaurar la sesión anterior');}
+        finally{if(hadActive)db.activeExam=active;else delete db.activeExam;}
+      }else{
+        examQueue=queue;examAnswers=answers;examIndex=index;examScore=score;
+        drafts.clear();for(const [key,value] of savedDrafts)drafts.set(key,clone(value));
+        window.NOA_EXAM_SHELL.restore(clock,{sync:false});
+        renderExam();
+      }
+    };
+  }
+
 
   function answerFor(
     question
@@ -2686,6 +2724,7 @@
     save:persistSession,
     recover:recoverSession,
     validate:validRecovery,
+    prepareBackupRollback,
     state:() => ({saved:!!db.activeExam, recovering:recoveringSession})
   };
 

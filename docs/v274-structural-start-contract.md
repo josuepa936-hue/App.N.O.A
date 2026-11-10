@@ -180,8 +180,10 @@ de v10. No se añade Física,dependencias,despliegues,otra rama ni Fase2.
 
 ## Verificación
 
-Las pruebas usan Chromium,un worker,contextos aislados,reloj controlado y stubs de
-IA/red. Las variantes dentro de una prueba de invariantes son aserciones de esa
+Las pruebas usan Chromium,contextos aislados,reloj controlado y stubs de IA/red.
+Las dos baterías finales (335 y195) usaron dos workers, como indican sus comandos
+y reportes JSON; los reproductores dirigidos iniciales utilizaron uno.
+Las variantes dentro de una prueba de invariantes son aserciones de esa
 prueba, no se suman como ejecuciones independientes.
 
 La evidencia completa y los reportes JSON se generan en /tmp/noa-pr24-structural-*.
@@ -243,3 +245,84 @@ No se ejecutó toda la suite ni IA real. Los fixtures sintéticos validan reglas
 del software, no calidad científica del servicio ni dominio real del estudiante.
 No se probaron dispositivos físicos. Las frases fuera de la gramática admitida
 requieren reformulación; no se intenta resolver lenguaje libre o aritmética.
+
+## Corrección de importación de respaldos históricos posterior a2f2d0fd
+
+Los dos reproductores se ejecutaron primero, antes de cambiar el producto:
+180 sin startContract con distribución21/19, y180 con el título contradictorio
+«Entrenamiento completo179». Ambos fallaban con runtime_refresh_failed después
+de escribir. La ausencia de startContract saltaba la comprobación de inicio.
+
+recoveryExamStartIntent ahora pasa también los checkpoints históricos por
+resolveExamStart, con contexto de recuperación explícito y el catálogo propuesto.
+validRecovery y recoverSession comparten esa validación de solo lectura:
+cantidades, títulos, formato, identidades, distribución, respuestas y créditos.
+No se cambia el catálogo ni se convierte el título en una certificación oficial.
+Los checkpoints antiguos válidos de45/180 siguen sin startContract al recuperarse.
+
+La transacción de restoreBackup mantiene el bloqueo de memoria durante la
+escritura, aplicación y verificación del runtime. Retiene los bytes originales
+de ambas claves, el epoch previo, la base vigente y una captura de sesión v21.
+La captura incluye borradores, editor/revisión, respuestas, puntuación y reloj;
+no escribe ni inicia/cierra exámenes. La recuperación del rollback usa la función
+nativa de v21, independientemente de un fallo del punto de entrada público.
+
+Se confirma éxito solo si almacenamiento y sesión coinciden en cola, renderer,
+índice, puntuación, respuestas, plazo y procedencia. Se preparan antes de escribir
+los defaults existentes de Temario/v6 (strictSyllabus, perfil y catálogo null
+cuando está ausente); los lectores existentes ya los inicializaban, pero sin
+examen activo no había una escritura de checkpoint que confirmara esos defaults.
+
+Si falla la aplicación, se restaura la base anterior y su sesión, y al final
+los bytes originales de ambas claves. El epoch invalida trabajo de memoria de
+la sesión rechazada. Se preservan también resultados ya finalizados, selección
+pendiente de procedencia y posición de navegación de la interfaz. El temporizador
+de enfoque solo se reinicia tras verificar una importación correcta.
+
+Cuando el navegador también deniega el rollback, no se declara éxito ni se deja
+una importación fallida como committed:true: se devuelve rollback_failed, se
+advierte del riesgo y el mecanismo existente retiene los originales en RAM.
+La siguiente operación de respaldo puede reparar las claves al volver el acceso.
+No hay garantía de persistencia de esa RAM si se cierra la pestaña en ese estado.
+Las pruebas incluyen esa denegación y su reparación posterior.
+
+Se añade tests/backup-checkpoint-atomicity.spec.cjs:26 casos deterministas en
+Chromium. Incluyen los dos rechazos con cero escrituras y snapshots completos,
+históricos45/180, contratos actuales, otro catálogo, procedencia incompatible,
+parciales/omisiones, errores de almacenamiento y runtime, resultados finalizados,
+importación sin sesión y offline. Un caso usa memoria e historial de destino
+realmente diferentes y provoca el fallo después de recuperar el nuevo examen.
+
+La validación específica usa un worker. Primero pasaron24 casos en
+/tmp/noa-backup-release-specific.json y uno adicional en
+/tmp/noa-backup-distinct-data.json. Después se añadió el caso de navegación
+de UI indisponible: un error de presentación no debe saltarse la reversión final
+de las claves. La batería final completa está en /tmp/noa-backup-final-specific.json.
+Resultado final:26 aprobadas,0 fallidas,0 omitidas.
+No se suman las ejecuciones intermedias solapadas.
+
+En las ampliaciones se corrigió el desfase real de defaults sin sesión activa.
+También se corrigieron expectativas del fixture: primera pregunta ya presentada,
+avance explícito de200ms tras recarga, centinelas de IA que debían reinstalarse
+al recargar y un helper de cierre que presuponía historial vacío. No se cambian
+las reglas de puntuación ni se relajan los snapshots de rechazo/rollback.
+
+Los archivos servidos requieren cachév6-93. Se conserva el aislamiento por scope
+y ASSETS; en diez specs existentes solo cambia el literal esperado de caché.
+No se cambian Judge,Calibrator,scoring,resultados v27,distribución45 ni históricos.
+
+Las regresiones relacionadas se ejecutaron una sola vez con dos workers:
+266 aprobadas,0 fallidas,0 omitidas (/tmp/noa-backup-regressions.json).
+Incluyen v26,procedencia,memoria,respaldos,contratos,45/180,resultados yoffline.
+Esta ejecución precedió al último guard de errores de navegación del rollback;
+ese guard se valida en la batería específica final completa posterior. No se
+repitieron las suites sin cambios ni se ejecutó la suite completa de la aplicación.
+Son292 pruebas distintas aprobadas entre26 específicas y266 regresiones, sin
+solapamiento entre esas dos selecciones. Sintaxis y git diff --check correctos.
+
+Archivos de esta corrección: index.html,excoba_patch_v21_exam_navigation.js,
+excoba_patch_v25_question_memory.js,sw.js,este documento y el nuevo spec de
+atomicidad. Los diez cambios de literal de caché corresponden a exam-45-ui,
+exam-multibatch,exam-plan,generator-ui,question-diversity-integration,
+question-memory-integration,question-memory,results-normalization,timed-exam y
+topic-diversity, bajo tests/ y con sufijo .spec.cjs.
