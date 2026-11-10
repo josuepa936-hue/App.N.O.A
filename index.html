@@ -1365,22 +1365,10 @@ function startExam(){
   shuffle(candidates);
 
 
-  window.NOA_MIXED_EXAM?.stop?.();
-
-  examQueue =
-    candidates.slice(0,count);
-
-  examIndex = 0;
-
-  examScore = 0;
-
-  examAnswers = [];
-
-  window.NOA_STUDY_PROVENANCE_V27?.begin(examAnswers,examQueue);
-
-  renderExam();
-
+  return beginExamQueue(candidates.slice(0,count),'Simulacro',
+    {version:1,mode:'manual',requestedCount:count,completion:'partial'});
 }
+
 function judgeReviewHTML(answer){
   const judge = answer.judge;
   if(!judge || typeof judge !== 'object' || Array.isArray(judge)){
@@ -2987,26 +2975,68 @@ function selectQuestionsForSubject(sid,count){
   const top=pool.slice(0,Math.min(pool.length,Math.max(count*3,count)));shuffle(top);return top.slice(0,count);
 }
 function rejectGenericCompleteExam(){toast('Para 180 reactivos usa Entrenamiento completo 180 en Comandos; requiere veinte válidos únicos por materia.');return false;}
-function beginExamQueue(queue,label='Simulacro'){
-  if(queue.length>=180&&(queue.length!==180||!validateLocalExcobaQueue(queue,180).valid)){rejectGenericCompleteExam();return false;}
-  if(!validExamTimingConfiguration()) return;
-  if(!queue.length){toast('No hay preguntas suficientes');return}
+// Start intent is validated before touching any live exam/provenance/checkpoint.
+function resolveExamStart(queue,legacyLabel='Simulacro',intent){
+  const reject=message=>({valid:false,message});
+  if(!Array.isArray(queue)||!queue.length)return reject('No hay preguntas suficientes');
+  const availableCount=queue.length;
+  if(intent===undefined){
+    if(window.NOA_EXAM_RECOVERY?.state?.().recovering&&availableCount===180){
+      intent={version:1,mode:'excoba-local',requestedCount:180,completion:'complete'};
+    }else{
+      // Text may veto an unsafe legacy call; it never authorizes a complete mode.
+      if(availableCount>=180||typeof legacyLabel!=='string'||/\b180\b|\bcomplet(?:o|a|os|as)\b|\boficial\b|\bcertificad[oa]\b/.test(normalizeText(legacyLabel)))
+        return reject('Inicio rechazado: la modalidad completa requiere un contrato válido.');
+      intent={version:1,mode:'legacy-partial',requestedCount:availableCount,completion:'partial'};
+    }
+  }
+  const keys=['version','mode','requestedCount','completion','allowShortfall'];
+  if(!intent||typeof intent!=='object'||Array.isArray(intent)||Reflect.ownKeys(intent).some(k=>!keys.includes(k))||
+    intent.version!==1||!['excoba-local','manual','legacy-partial'].includes(intent.mode)||
+    !Number.isSafeInteger(intent.requestedCount)||intent.requestedCount<1||
+    !['complete','partial'].includes(intent.completion)||
+    intent.allowShortfall!==undefined&&typeof intent.allowShortfall!=='boolean')return reject('Contrato de inicio inválido.');
+  const {mode,requestedCount,completion}=intent;
+  let label;
+  if(completion==='complete'){
+    if(mode!=='excoba-local'||![45,180].includes(requestedCount)||!validateLocalExcobaQueue(queue,requestedCount).valid)
+      return reject('No se inició el entrenamiento completo: cantidad, distribución o reactivos inválidos.');
+    label='Entrenamiento local completo '+requestedCount+' · banco manual/plantillas, sin equivalencia oficial';
+  }else{
+    if(mode==='excoba-local'||requestedCount>=180||availableCount>=180||availableCount>requestedCount||
+      availableCount<requestedCount&&intent.allowShortfall!==true)return reject('La cantidad disponible no coincide con la modalidad parcial solicitada.');
+    label='Entrenamiento parcial local '+availableCount+(availableCount<requestedCount?' de '+requestedCount+' solicitados':'')+' · sin equivalencia oficial';
+  }
+  return {valid:true,label,contract:Object.freeze({version:1,mode,requestedCount,availableCount,completion})};
+}
+function beginExamQueue(queue,label='Simulacro',intent){
+  const resolved=resolveExamStart(queue,label,intent);
+  if(!resolved.valid){
+    // v26 recovery catches exceptions; returning false alone would let it persist
+    // an empty runtime and discard the original rejected checkpoint.
+    if(window.NOA_EXAM_RECOVERY?.state?.().recovering)throw new Error(resolved.message);
+    toast(resolved.message);return false;
+  }
+  if(!validExamTimingConfiguration()) return false;
   window.NOA_MIXED_EXAM?.stop?.();
   examQueue=queue;examIndex=0;examScore=0;examAnswers=[];
   window.NOA_STUDY_PROVENANCE_V27?.begin(examAnswers,examQueue);
-  page('exam','Simulacros');renderExam();toast(label+' iniciado');speak(`${label} listo. Son ${queue.length} preguntas. Empezamos.`);
+  page('exam','Simulacros');renderExam();toast(resolved.label+' iniciado');speak(`${resolved.label} listo. Son ${queue.length} preguntas. Empezamos.`);
+  return true;
 }
+
 function startExamForTarget(target,count=10){
   if(count>=180)return rejectGenericCompleteExam();
+  if(!Number.isSafeInteger(count)||count<1){toast('Cantidad parcial inválida.');return false;}
   if(!db.subjects.some(s=>s.name.startsWith('EXCOBA')))loadExcobaPreset(true);
   let s=findSubjectTarget(target);
-  if(s){generateQuestionsFromSyllabus();return beginExamQueue(selectQuestionsForSubject(s.id,count),`Entrenamiento parcial de ${s.name.replace('EXCOBA Medicina · ','')}`)}
+  if(s){generateQuestionsFromSyllabus();return beginExamQueue(selectQuestionsForSubject(s.id,count),'Simulacro',{version:1,mode:'legacy-partial',requestedCount:count,completion:'partial',allowShortfall:true})}
   let t=findTopicTarget(target);
   if(t){
     let pool=db.questions.filter(q=>q.topicId===t.id);
     if(!pool.length)generateQuestionsFromSyllabus();
     pool=db.questions.filter(q=>q.topicId===t.id);shuffle(pool);
-    return beginExamQueue(pool.slice(0,Math.min(count,pool.length)),`Entrenamiento parcial de ${t.name}`);
+    return beginExamQueue(pool.slice(0,Math.min(count,pool.length)),'Simulacro',{version:1,mode:'legacy-partial',requestedCount:count,completion:'partial',allowShortfall:true});
   }
   toast('No encontré esa materia. Carga o crea el temario primero.');
   speak('No encontré esa materia todavía. Puedes cargar el temario EXCOBA o agregar tus propios temas.');
@@ -3049,20 +3079,51 @@ function startExcobaExam(total=45){
     queue.push(...pool.slice(0,each));
   }
   if(missing.length||!validateLocalExcobaQueue(queue,total).valid)return toast('No se inició el entrenamiento '+total+'. Faltan reactivos válidos únicos: '+missing.join('; '));
-  shuffle(queue);return beginExamQueue(queue,'Entrenamiento local '+total+' · banco manual/plantillas, sin equivalencia oficial');
+  shuffle(queue);return beginExamQueue(queue,'Simulacro',{version:1,mode:'excoba-local',requestedCount:total,completion:'complete'});
+}
+function parseExcobaTrainingCount(raw,defaultCount=45){
+  const text=String(raw??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const explicit=[],ranges=[];
+  const remember=(match,group)=>{const value=match[group].replace(',','.');explicit.push(Number(value));ranges.push([match.index,match.index+match[0].length]);};
+  for(const m of text.matchAll(/(^|[^\p{L}\p{N}_.])([+-]?\d+(?:[.,]\d+)?)\s*(preguntas?|reactivos?)\b/gu))remember(m,2);
+  for(const m of text.matchAll(/\b(?:preguntas?|reactivos?)\s*(?:[:=]|de)?\s*([+-]?\d+(?:[.,]\d+)?)(?![\p{L}\p{N}_])/gu))remember(m,1);
+  const context=[];
+  for(const pattern of [/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/g,/\b\d{1,2}[/.]\d{1,2}[/.]\d{4}\b/g,
+    /\b(?:v|version)\s*\d+(?:\.\d+)*\b/g,
+    /\b(?:sesion|intento|ano|fecha|tema|subtema|capitulo|grupo|nivel|version)\s*(?:numero\s*)?[:#=]?\s*[+-]?\d+(?:[.,]\d+)*/g]){
+    for(const m of text.matchAll(pattern))context.push([m.index,m.index+m[0].length]);
+  }
+  const remaining=[];let unmarkedYear=false;
+  for(const m of text.matchAll(/[+-]?\d+(?:[.,]\d+)*/g)){
+    const end=m.index+m[0].length,inside=spans=>spans.some(([a,b])=>m.index>=a&&end<=b);
+    if(inside(ranges)||inside(context))continue;
+    if(/^(?:19|20)\d{2}$/.test(m[0])){if(!explicit.length)unmarkedYear=true;continue;}
+    remaining.push({value:Number(m[0].replace(',','.')),start:m.index,end});
+  }
+  if(unmarkedYear||new Set(explicit).size>1||explicit.length&&remaining.length||!explicit.length&&remaining.length>1)
+    return {valid:false,message:'Cantidad ambigua. Indica una sola cantidad de preguntas o reactivos.'};
+  if(!explicit.length&&remaining.length){
+    const token=remaining[0],prefix=text.slice(0,token.start),next=text[token.end]||'';
+    if(!/(?:\bexcoba(?:\s+de)?|\b(?:practica|practicar|repasa|repasar|entrena|examen|simulacro|cuestionario)(?:\s+de)?)\s*$/.test(prefix)||/[a-z0-9_]/.test(next))
+      return {valid:false,message:'Cantidad ambigua. Indica la cantidad seguida de preguntas o reactivos.'};
+  }
+  const count=explicit.length?explicit[0]:remaining.length?remaining[0].value:defaultCount;
+  if(![5,10,15,20,45,180].includes(count))return {valid:false,message:'Cantidad no soportada. Disponibles: 5, 10, 15, 20, 45 o 180 reactivos.'};
+  return {valid:true,count,source:explicit.length?'explicit':remaining.length?'abbreviated':'default'};
 }
 function handleExcobaTrainingCommand(raw){
   const text=normalizeText(raw);
-  if(!text.includes('excoba')||
-    /flashcards|tarjetas|guia|temario/.test(text)||!/(practica|repasa|entrena|examen|simulacro|cuestionario)/.test(text))return false;
-  const quantity=text.match(/\b(\d+)\b/),count=quantity?Number(quantity[1]):45;
-  if(![5,10,15,20,45,180].includes(count)){toast('Cantidad no soportada. Disponibles: 5, 10, 15, 20, 45 o 180 reactivos.');return true;}
+  if(!text.includes('excoba')||!/(practica|repasa|entrena|examen|simulacro|cuestionario)/.test(text))return false;
+  if(/flashcards|tarjetas|guia|temario/.test(text)){toast('Orden ambigua: indica si deseas un examen, tarjetas o consultar el temario.');return true;}
+  const quantity=parseExcobaTrainingCount(raw);
+  if(!quantity.valid){toast(quantity.message);return true;}
+  const count=quantity.count;
   if(count===45||count===180){startExcobaExam(count);return true;}
   const subjects=window.NOA_EXCOBA_V4?.subjects;
   if(!Array.isArray(subjects)){toast('El catálogo EXCOBA aún no está disponible.');return true;}
   const pool=uniqueLocalExcobaQuestions(db.questions,subjects);
   if(pool.length<count){toast('No se inició el entrenamiento parcial: hay '+pool.length+' de '+count+' reactivos válidos únicos.');return true;}
-  beginExamQueue(pool.slice(0,count),'Entrenamiento parcial EXCOBA '+count+' · banco local');return true;
+  beginExamQueue(pool.slice(0,count),'Simulacro',{version:1,mode:'legacy-partial',requestedCount:count,completion:'partial'});return true;
 }
 
 function relevantNotes(target){
@@ -3160,6 +3221,13 @@ function executeCommand(raw){
   if(handleExcobaTrainingCommand(raw))return;
   const original=String(raw||'').trim(), n=normalizeText(original).replace(/^noa\s+/,'');
   if(!n)return;
+  let trainingCount=null;
+  if(!/guia|flashcards|tarjetas|temario/.test(n)&&/(examen|simulacro|cuestionario)/.test(n)&&/(crea|creame|hazme|genera|prepara|inicia)/.test(n)){
+    const quantity=parseExcobaTrainingCount(raw,10);
+    if(!quantity.valid){toast(quantity.message);return;}
+    trainingCount=quantity.count;
+    if(trainingCount>=180){rejectGenericCompleteExam();return;}
+  }
   act('Comando: '+original);save();
   document.getElementById('voiceStatus').textContent='Ejecutando: '+original;
 
@@ -3174,11 +3242,11 @@ function executeCommand(raw){
     smartCreateGuide(target);return;
   }
   if(/(examen|simulacro)/.test(n) && /(crea|creame|hazme|genera|prepara|inicia)/.test(n)){
-    let m=n.match(/(\d{1,3})\s*(preguntas|reactivos)?/),count=m?Math.min(180,Math.max(1,parseInt(m[1]))):10;
+    const count=trainingCount??10;
     if(n.includes('excoba')){
-      if(count===180)startExcobaExam(180);else if(count===45||!m)startExcobaExam(45);else{
+      if(count===180)startExcobaExam(180);else if(count===45)startExcobaExam(45);else{
         loadExcobaPreset(true);
-        let all=db.questions.filter(q=>topicBy(q.topicId)?.source===EXCOBA_UAQ_2026.source);shuffle(all);beginExamQueue(all.slice(0,count),`Entrenamiento parcial EXCOBA ${count}`);
+        let all=db.questions.filter(q=>topicBy(q.topicId)?.source===EXCOBA_UAQ_2026.source);shuffle(all);beginExamQueue(all.slice(0,count),'Simulacro',{version:1,mode:'legacy-partial',requestedCount:count,completion:'partial',allowShortfall:true});
       }
       return;
     }
@@ -3394,6 +3462,7 @@ ${ctx||'Sin material local: usa conocimiento académico general.'}`;
 }
 async function smartStartExamForTarget(target,count=10){
   if(count>=180)return rejectGenericCompleteExam();
+  if(!Number.isSafeInteger(count)||count<1){toast('Cantidad parcial inválida.');return false;}
   if(db.settings?.aiProvider==='offline')return startExamForTarget(target,count);
   const box=document.getElementById('examBox');page('exam','Simulacros');
   box.innerHTML='<h2>NOA está generando el examen…</h2><p class="muted">Construyendo preguntas y distractores.</p>';
@@ -3401,7 +3470,7 @@ async function smartStartExamForTarget(target,count=10){
     const qs=await generateAIQuestions(target,count);
     if(!qs.length)throw new Error('No se generaron preguntas');
     db.questions.push(...qs);act(`${qs.length} preguntas IA creadas para ${target}`);save();
-    beginExamQueue(qs,`Examen IA de ${target}`);
+    beginExamQueue(qs,'Simulacro',{version:1,mode:'legacy-partial',requestedCount:count,completion:'partial',allowShortfall:true});
   }catch(err){
     toast('Falló la generación IA; usaré el banco local');
     startExamForTarget(target,count);

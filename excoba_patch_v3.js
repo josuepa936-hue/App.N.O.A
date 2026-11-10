@@ -1282,8 +1282,9 @@ beginExamQueue(
         /(cuestionario|examen|simulacro)/.test(text) &&
         /(crea|creame|hazme|genera|prepara|inicia)/.test(text)
       ){
-        const m=text.match(/\b(\d+)\b/);
-        const count=m?Number(m[1]):10;
+        const quantity=window.parseExcobaTrainingCount?.(raw,10);
+        if(!quantity?.valid){safeToast(quantity?.message||'No puedo interpretar la cantidad con seguridad.');return;}
+        const count=quantity.count;
         if(!Number.isSafeInteger(count)||count<1||count>30){safeToast('Para 45 o 180 usa el entrenamiento EXCOBA específico; no se cambiará la cantidad solicitada.');return;}
         createQuizV3(subject,count);
         return;

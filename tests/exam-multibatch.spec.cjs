@@ -457,7 +457,7 @@ test.describe('v25 multilote con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, module: !!await (await caches.open(name)).match(new URL('excoba_patch_v25_multibatch.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-89$/);
+    expect(cached.name).toMatch(/:v6-90$/);
     expect(cached.module).toBe(true);
     await context.setOffline(true);
     await page.reload();
