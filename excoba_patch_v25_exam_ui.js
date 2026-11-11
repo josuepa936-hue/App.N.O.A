@@ -66,7 +66,7 @@
       const engines = typeof window.NOA_EXAM_PLAN_V25?.build === 'function' &&
         typeof window.NOA_MULTI_BATCH_V25?.generate === 'function' && typeof window.NOA_MIXED_EXAM?.start === 'function';
       const syllabus = window.NOA_EXCOBA_V4;
-      const subjects = syllabus?.subjects || [];
+      const subjects = window.NOA_EXCOBA_PREPARATION?.examSubjects(window.NOA_EXCOBA_PREPARATION.selected())||syllabus?.subjects||[];
       const completeSyllabus = subjects.length === 9 && subjects.every(subject => syllabus.itemsFor(subject.value).length > 0);
       available = engines && completeSyllabus && !!profile && !!calibration;
       element('Availability').textContent = peerBusy() ? 'El generador de 5/10 preguntas está activo. Espera a que termine.'
@@ -81,6 +81,7 @@
     }finally{
       element('Generate').disabled = busy || peerBusy() || !available;
       element('Card').setAttribute('aria-busy', String(busy));
+      window.NOA_EXCOBA_PREPARATION?.refresh();
     }
   }
 
@@ -147,6 +148,7 @@
 
   async function generate(){
     if(busy || peerBusy()) return;
+    const preparationProfile=window.NOA_EXCOBA_PREPARATION?.selected()||'A';
     busy = true;
     const run = ++sequence;
     let acceptingProgress = false, starting = false;
@@ -161,7 +163,7 @@
       await pause();
       assert(typeof window.NOA_EXAM_PLAN_V25?.build === 'function' && typeof window.NOA_MULTI_BATCH_V25?.generate === 'function' &&
         typeof window.NOA_MIXED_EXAM?.start === 'function', 'Faltan los motores del simulacro de 45 reactivos.');
-      const plan = window.NOA_EXAM_PLAN_V25.build({diversifyTopics:true});
+      const plan = window.NOA_EXAM_PLAN_V25.build({diversifyTopics:true,preparationProfile});
       assert(plan?.valid === true && plan.total === 45 && Array.isArray(plan.unsupportedSlots) && !plan.unsupportedSlots.length &&
         plan.slots?.length === 45 && plan.subjects?.length === 9,
       `Plan académico inválido. ${plan?.errors?.[0]?.message || 'Se requieren 45 slots compatibles de las nueve materias.'}`);

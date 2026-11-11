@@ -1344,6 +1344,7 @@
       resolved = selected.resolved;
       topicDiversity = selected.trace;
     }
+    resolved=window.NOA_EXCOBA_PREPARATION?.decorateSource(subject,resolved)||resolved;
 
     return {
 

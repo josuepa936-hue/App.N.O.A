@@ -14,7 +14,7 @@ async function installMultibatchFixture(page, configuration = {}) {
         analysis: { syllabus_links: [{ code: subject.prefixes[0] + '1' }], concepts: [] }
       })) : [];
     }
-    const plan = NOA_EXAM_PLAN_V25.build();
+    const plan = NOA_EXAM_PLAN_V25.build({preparationProfile:configuration.preparationProfile||'A'});
     const orderedFormats = ['single_select', 'drag_classify', 'inline_select', 'drag_order'];
     const pairs = Object.fromEntries(orderedFormats.map(type => {
       const origin = plan.slots.findIndex(entry => entry.blueprintSlot.interactionType === type);

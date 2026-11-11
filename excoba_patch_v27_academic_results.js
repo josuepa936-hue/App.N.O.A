@@ -18,7 +18,9 @@
    return ['subject','title','focus'].every(key=>item[key]===expected[key]);
   });
   // Use canonical values even for a verified persisted copy. Never repair it.
-  return {subjects:subjects.map(item=>({...item,prefixes:[...item.prefixes]})),items:official.map(item=>({...item})),source:valid?'verified-persisted':'verified-static'};
+  const available=window.NOA_EXCOBA_PREPARATION?.trainingSubjects()||subjects;
+  const supplemental=window.NOA_EXCOBA_PREPARATION?.items()||[];
+  return {subjects:available.map(item=>({...item,prefixes:[...item.prefixes]})),items:[...official,...supplemental].map(item=>({...item})),source:valid?'verified-persisted':'verified-static',supplementalSources:supplemental.length?[window.NOA_EXCOBA_PREPARATION.reference()]:[]};
  }
  function evidence(attempt){
   if(attempt?.technicalTest===true||attempt?.evidenceKind==='technical_test')return 'technical_test';

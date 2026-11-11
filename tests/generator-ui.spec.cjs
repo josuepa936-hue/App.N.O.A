@@ -38,18 +38,19 @@ test('v24 ofrece solo materias del Temario y conserva selección al refrescar', 
   const definitions = await masterSubjects(page, 2);
   await page.evaluate(() => { db.subjects.push({ id: 'private-subject', name: 'Materia manual ajena al Temario' }); save(); });
   expect(await page.locator('#noaGeneratorSubject option').evaluateAll(options => options.filter(option => option.value).map(option => option.value)))
-    .toEqual(definitions.map(subject => subject.value));
+    .toEqual([...definitions.map(subject => subject.value),await page.evaluate(()=>NOA_EXCOBA_PREPARATION.physics().value)]);
   await page.locator('#noaGeneratorSubject').selectOption(definitions[1].value); await page.locator('#noaGeneratorCount').selectOption('10');
   await page.evaluate(() => { renderAll(); window.dispatchEvent(new Event('focus')); });
   await expect(page.locator('#noaGeneratorSubject')).toHaveValue(definitions[1].value);
   await expect(page.locator('#noaGeneratorCount')).toHaveValue('10'); await expect(generate(page)).toBeEnabled();
 });
 
-test('v24 sin Temario no inventa materias ni habilita generación', async ({ page }) => {
+test('v24 sin Temario conserva solo la referencia alternativa verificable de Física', async ({ page }) => {
   await page.evaluate(() => { db.masterSyllabus = null; save(); });
-  expect(await page.locator('#noaGeneratorSubject option').evaluateAll(options => options.filter(option => option.value).map(option => option.value))).toEqual([]);
-  await expect(page.locator('#noaGeneratorSubject')).toBeDisabled(); await expect(generate(page)).toBeDisabled();
-  await expect(page.locator('#noaGeneratorStatus')).toContainText(/Temario Maestro/i);
+  const physics=await page.evaluate(()=>NOA_EXCOBA_PREPARATION.physics().value);
+  expect(await page.locator('#noaGeneratorSubject option').evaluateAll(options => options.filter(option => option.value).map(option => option.value))).toEqual([physics]);
+  await expect(page.locator('#noaGeneratorSubject')).toBeEnabled(); await expect(generate(page)).toBeEnabled();
+  await expect(page.locator('#noaPhysicsGenerationNotice')).toContainText('no confirmada');
 });
 
 test('v24 requiere Batch disponible y se habilita cuando vuelve a estarlo', async ({ page }) => {
@@ -228,7 +229,7 @@ test.describe('v24 etapa 2 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v24: !!await (await caches.open(name)).match(new URL('excoba_patch_v24_generator_ui.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-94$/); expect(cached.v24).toBe(true);
+    expect(cached.name).toMatch(/:v6-95$/); expect(cached.v24).toBe(true);
     await context.setOffline(true); await page.reload(); await page.waitForFunction(() => !!window.NOA_GENERATOR_UI);
     await page.locator('#nav button[data-page="exam"]').click(); const before = await examState(page); await generate(page).click();
     await expect(phase(page)).toHaveText('Error del motor'); await expect(page.locator('#noaGeneratorDetails')).toContainText(/conexi[oó]n|offline|internet/i);

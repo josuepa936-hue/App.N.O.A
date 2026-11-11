@@ -253,7 +253,7 @@
 
 
     q.topicId =
-      topicIdFor(q);
+      window.NOA_EXCOBA_PREPARATION?.topicIdForQuestion(q) ?? topicIdFor(q);
 
 
     q.blueprint =
@@ -399,6 +399,8 @@
     }
 
     ensureStyles();
+
+    window.NOA_EXCOBA_PREPARATION?.ensureTopicsForQuestions(questions);
 
 
     recorded.clear();
