@@ -85,6 +85,8 @@
   // =====================================
 
   function sourceContext(slot){
+    const alternative=window.NOA_EXCOBA_PREPARATION?.sourceContext(slot);
+    if(alternative)return alternative;
 
     const s =
       slot?.source || {};

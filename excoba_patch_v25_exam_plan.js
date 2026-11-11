@@ -9,8 +9,10 @@
   const TOTAL = 45;
   const COMPATIBLE_INTERACTIONS = ['single_select', 'drag_classify', 'inline_select', 'drag_order'];
 
-  function build({diversifyTopics = false} = {}){
+  function build({diversifyTopics = false,preparationProfile='A'} = {}){
     if(typeof diversifyTopics !== 'boolean') throw new Error('diversifyTopics debe ser booleano.');
+    if(!['A','B'].includes(preparationProfile))throw new Error('Perfil de preparación inválido.');
+    const definitions=GROUPS.map(group=>({...group,prefixes:group.prefixes.map(prefix=>preparationProfile==='B'&&prefix==='3.1.'?'3.3.':prefix)}));
     const syllabus = window.NOA_EXCOBA_V4;
     const blueprintEngine = window.NOA_SOURCE_BLUEPRINT;
     const supported = window.NOA_BATCH_ORCHESTRATOR?.supportedTypes;
@@ -20,7 +22,7 @@
     const unsupportedSlots = [];
     const subjectIds = new Set();
     const slotIds = new Set();
-    const groups = GROUPS.map(group => ({
+    const groups = definitions.map(group => ({
       id:group.id, label:group.label,
       requiredCount:group.prefixes.length * PER_SUBJECT, subjectIds:[]
     }));
@@ -39,10 +41,10 @@
     let calibration = null;
 
     if(enginesReady){
-      for(const [groupIndex, definition] of GROUPS.entries()){
+      for(const [groupIndex, definition] of definitions.entries()){
         const group = groups[groupIndex];
         for(const prefix of definition.prefixes){
-          const matches = syllabus.subjects.filter(subject => subject.prefixes?.includes(prefix));
+          const matches = (window.NOA_EXCOBA_PREPARATION?.examSubjects(preparationProfile)||syllabus.subjects).filter(subject => subject.prefixes?.includes(prefix));
           if(matches.length !== 1 || !matches[0].value){
             fail('missing_subject', `Se requiere una materia única del Temario para ${prefix}`, {groupId:group.id, prefix});
             continue;
@@ -125,8 +127,8 @@
       }
     }
     return {
-      version:'25.0', requestedTotal:TOTAL, total:slots.length,
-      distributionNote:'Adaptación proporcional de los 180 reactivos de EXCOBA Medicina; no representa frecuencias exactas de formatos del examen oficial.',
+      version:'25.0', requestedTotal:TOTAL, total:slots.length,preparationProfile,
+      distributionNote:'Adaptación proporcional de los 180 reactivos de EXCOBA Medicina; no representa frecuencias exactas de formatos del examen oficial.'+(preparationProfile==='B'?' Composición alternativa con Física no confirmada para Medicina UAQ.':''),
       groups, subjects, profile, calibration, slots,
       interactionPolicy:{
         restricted:true, supportedInteractionTypes:[...supportedInteractionTypes], selection:'subject_intersection',

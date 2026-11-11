@@ -3125,16 +3125,18 @@ function uniqueLocalExcobaQuestions(questions,subjects,database=db){
   return unique;
 }
 function validateLocalExcobaQueue(queue,total,database=db){
-  const subjects=window.NOA_EXCOBA_V4?.subjects;
-  if(!Array.isArray(subjects)||subjects.length!==9)return {valid:false,message:'El catálogo EXCOBA aún no está disponible.'};
-  const unique=uniqueLocalExcobaQuestions(queue,subjects,database),each=total/9;
-  return {valid:queue.length===total&&unique.length===total&&subjects.every(subject=>
-    unique.filter(q=>database.subjects.find(s=>s.id===database.topics.find(t=>t.id===q.topicId)?.subjectId)?.name===subject.value).length===each)};
+  const profiles=window.NOA_EXCOBA_PREPARATION?['A','B'].map(id=>window.NOA_EXCOBA_PREPARATION.examSubjects(id)):[window.NOA_EXCOBA_V4?.subjects];
+  return {valid:profiles.some(subjects=>{
+    if(!Array.isArray(subjects)||subjects.length!==9)return false;
+    const unique=uniqueLocalExcobaQuestions(queue,subjects,database),each=total/9;
+    return queue.length===total&&unique.length===total&&subjects.every(subject=>
+      unique.filter(q=>database.subjects.find(s=>s.id===database.topics.find(t=>t.id===q.topicId)?.subjectId)?.name===subject.value).length===each);
+  })};
 }
 function startExcobaExam(total=45){
   if(!validExamTimingConfiguration())return;
   if(![45,180].includes(total))return toast('Modalidad no soportada. Disponibles: 5, 10, 15, 20, 45 o 180.');
-  const subjects=window.NOA_EXCOBA_V4?.subjects;
+  const subjects=window.NOA_EXCOBA_PREPARATION?.examSubjects(window.NOA_EXCOBA_PREPARATION.selected())||window.NOA_EXCOBA_V4?.subjects;
   if(!Array.isArray(subjects)||subjects.length!==9)return toast('El catálogo EXCOBA aún no está disponible.');
   const each=total===180?20:5,unique=uniqueLocalExcobaQuestions(db.questions,subjects);
   const queue=[],missing=[];
@@ -3736,6 +3738,7 @@ renderTimer();renderAll();addMsg('noa','Hola. Soy NOA. Ahora también puedes hab
   <script src="./excoba_patch_v3.js"></script>
   <script src="./excoba_patch_v4.js"></script>
   <script src="./excoba_patch_v5.js"></script>
+  <script src="./excoba_patch_preparation_physics.js"></script>
   <script src="./excoba_patch_v6_sources.js"></script>
  <script src="./excoba_patch_v7_realism.js"></script>
 <script src="./excoba_patch_v8_blueprint.js"></script>

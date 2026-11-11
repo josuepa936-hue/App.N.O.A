@@ -11,7 +11,7 @@
 
   function subjects(){
     const syllabus = window.NOA_EXCOBA_V4;
-    return (syllabus?.subjects || []).filter(subject => syllabus.itemsFor(subject.value).length > 0);
+    return (window.NOA_EXCOBA_PREPARATION?.trainingSubjects() || syllabus?.subjects || []).filter(subject => syllabus.itemsFor(subject.value).length > 0);
   }
 
   function status(next, details){
@@ -84,6 +84,7 @@
       status('Error del motor', `No se pudieron actualizar los datos: ${error?.message || 'motor no disponible'}.`);
       return false;
     }finally{
+      window.NOA_EXCOBA_PREPARATION?.refresh();
       const validSubject = available.some(subject => subject.value === select.value);
       select.disabled = busy || !available.length;
       element('noaGeneratorCount').disabled = busy;

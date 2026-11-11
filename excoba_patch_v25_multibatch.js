@@ -100,7 +100,8 @@
     'Se requiere un plan v25 válido de exactamente 45 slots.');
     assert(plan.subjects?.length === 9 && plan.groups?.length === 3 && plan.slots?.length === TOTAL,
       'El plan debe contener nueve materias, tres grupos y 45 slots.');
-    const catalog = window.NOA_EXCOBA_V4?.subjects || [];
+    const catalog = window.NOA_EXCOBA_PREPARATION?.examSubjects(plan.preparationProfile||'A')||window.NOA_EXCOBA_V4?.subjects||[];
+    assert(catalog.length===9&&catalog.every(s=>plan.subjects.some(item=>item.id===s.value)),'Las materias no corresponden al perfil de preparación.');
     const subjects = new Map();
     for(const subject of plan.subjects){
       const real = catalog.find(item => item.value === subject.id);
