@@ -76,7 +76,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
 .install-btn{display:none}
 .ai-online{color:var(--good)}.ai-offline{color:var(--warn)}.ai-error{color:var(--bad)}
 .provider-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.provider-option{padding:14px;border:1px solid var(--line);border-radius:12px;background:#0d121c;cursor:pointer}
+.provider-option{color:var(--text);font:inherit;text-align:left;padding:14px;border:1px solid var(--line);border-radius:12px;background:#0d121c;cursor:pointer}
+#ai .field{min-width:0}
+#ai input,#ai select{width:100%;min-width:0;max-width:100%}
 .provider-option.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
 .safe-bottom{height:env(safe-area-inset-bottom)}
 @media(max-width:800px){
@@ -638,37 +640,41 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
     <div class="grid grid2">
       <div class="card">
         <h3>Proveedor</h3>
-        <div class="provider-grid">
-          <div class="provider-option" data-provider="offline" onclick="selectAIProvider('offline')">
-            <b>📱 Offline</b><div class="small">Reglas, temarios, memoria y búsqueda local.</div>
-          </div>
-          <div class="provider-option" data-provider="ollama" onclick="selectAIProvider('ollama')">
-            <b>🖥 Ollama directo</b><div class="small">Conecta el teléfono con Ollama en tu PC.</div>
-          </div>
-          <div class="provider-option" data-provider="ollama_bridge" onclick="selectAIProvider('ollama_bridge')">
-            <b>🌐 Ollama Bridge</b><div class="small">Útil si el navegador bloquea la conexión directa.</div>
-          </div>
-          <div class="provider-option" data-provider="openai" onclick="selectAIProvider('openai')">
-            <b>✦ OpenAI</b><div class="small">Responses API mediante NOA Bridge seguro.</div>
-          </div>
+        <div class="provider-grid" role="group" aria-label="Proveedor de inteligencia artificial">
+          <button type="button" class="provider-option" data-provider="offline" onclick="selectAIProvider('offline')"><b>📱 Offline</b><span class="small"> Memoria y búsqueda local.</span></button>
+          <button type="button" class="provider-option" data-provider="groq" onclick="selectAIProvider('groq')"><b>Groq</b><span class="small"> Texto mediante NOA Bridge v2.</span></button>
+          <button type="button" class="provider-option" data-provider="cloudflare" onclick="selectAIProvider('cloudflare')"><b>Cloudflare Workers AI</b><span class="small"> Texto mediante NOA Bridge v2.</span></button>
+          <button type="button" class="provider-option" data-provider="ollama" onclick="selectAIProvider('ollama')"><b>🖥 Ollama directo</b><span class="small"> Conexión directa con tu PC.</span></button>
+          <button type="button" class="provider-option" data-provider="openai" onclick="selectAIProvider('openai')"><b>OpenAI · preferencias anteriores</b><span class="small"> No disponible con Bridge v2.</span></button>
+          <button type="button" class="provider-option" data-provider="ollama_bridge" onclick="selectAIProvider('ollama_bridge')"><b>Ollama Bridge · anterior</b><span class="small"> No disponible con Bridge v2; usa Ollama directo.</span></button>
         </div>
+        <p id="aiProviderNotice" class="small" role="status"></p>
 
         <div id="ollamaSettings" style="margin-top:16px">
-          <div class="field"><label>URL de Ollama en tu PC</label><input id="aiOllamaUrl" placeholder="http://192.168.1.50:11434"></div>
-          <div class="field" style="margin-top:10px"><label>Modelo</label><input id="aiOllamaModel" placeholder="gemma3:4b"></div>
+          <div class="field"><label for="aiOllamaUrl">URL de Ollama en tu PC</label><input id="aiOllamaUrl" placeholder="http://192.168.1.50:11434"></div>
+          <div class="field" style="margin-top:10px"><label for="aiOllamaModel">Modelo Ollama</label><input id="aiOllamaModel" placeholder="gemma3:4b"></div>
         </div>
 
         <div id="bridgeSettings" style="margin-top:16px">
-          <div class="field"><label>URL de NOA Bridge</label><input id="aiBridgeUrl" placeholder="http://192.168.1.50:8787"></div>
-          <div class="field" style="margin-top:10px"><label>Token del Bridge</label><input id="aiBridgeToken" type="password" placeholder="Token configurado en tu PC/servidor"></div>
-          <div class="field" style="margin-top:10px"><label>Modelo OpenAI</label><input id="aiOpenAIModel" placeholder="gpt-5.6-luna"></div>
+          <div class="field"><label for="aiBridgeUrl">URL de NOA Bridge (sin /api/chat)</label><input id="aiBridgeUrl" placeholder="https://tu-worker.workers.dev"></div>
+          <div class="field" style="margin-top:10px"><label for="aiBridgeToken">Token del Bridge</label><input id="aiBridgeToken" type="password" placeholder="Token configurado en tu PC/servidor"></div>
+          <div class="field" id="openaiModelSettings" style="margin-top:10px"><label for="aiOpenAIModel">Modelo OpenAI anterior (no disponible con Bridge v2)</label><input id="aiOpenAIModel" placeholder="gpt-5.6-luna"></div>
+          <div class="field" id="groqModelSettings" style="margin-top:10px"><label for="aiGroqModel">Modelo Groq</label><select id="aiGroqModel" onchange="saveAISettings()"><option>openai/gpt-oss-120b</option><option>openai/gpt-oss-20b</option><option>qwen/qwen3.8-27b</option></select><span class="small">Solo texto; imágenes y NOA Vision no están habilitadas.</span></div>
+          <div class="field" id="cloudflareModelSettings" style="margin-top:10px"><label for="aiCloudflareModel">Modelo Cloudflare solicitado</label><select id="aiCloudflareModel" onchange="saveAISettings()"><option>@cf/google/gemma-4-26b-a4b-it</option></select></div>
         </div>
 
         <div class="row" style="margin-top:14px">
           <button class="btn primary" onclick="saveAISettings()">Guardar</button>
-          <button class="btn" onclick="testAIConnection()">Probar conexión</button>
+          <button class="btn" id="aiTestConnection" onclick="testAIConnection()">Probar conexión</button>
         </div>
-        <div id="aiConnectionStatus" class="sourcebox" style="margin-top:12px">Sin probar.</div>
+        <div id="aiConnectionStatus" role="status" aria-live="polite" class="sourcebox" style="margin-top:12px">Sin probar.</div>
+        <dl id="aiConnectionMetadata" class="small" style="overflow-wrap:anywhere">
+          <dt>Proveedor seleccionado</dt><dd id="aiSelectedProvider">Offline</dd>
+          <dt>Modelo solicitado</dt><dd id="aiRequestedModel">—</dd>
+          <dt>Proveedor reportado por el servidor</dt><dd id="aiReportedProvider">Sin probar</dd>
+          <dt>Modelo reportado por el servidor</dt><dd id="aiReportedModel">Sin probar</dd>
+          <dt>Coincidencia de identidad</dt><dd id="aiModelVerification">Sin probar</dd>
+        </dl>
       </div>
 
       <div class="card">
@@ -677,10 +683,10 @@ table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1
           <div class="item"><b>Guías</b><div class="small">NOA puede convertir temarios y apuntes en guías explicadas y estructuradas.</div></div>
           <div class="item"><b>Exámenes</b><div class="small">Genera preguntas nuevas, distractores y explicaciones adaptadas al nivel.</div></div>
           <div class="item"><b>Coach</b><div class="small">Pregunta libremente sobre tus apuntes y recibe tutoría contextual.</div></div>
-          <div class="item"><b>Voz</b><div class="small">Con OpenAI Bridge puede usar transcripción de audio si el navegador no reconoce tu voz.</div></div>
+          <div class="item"><b>Voz</b><div class="small">El reconocimiento de voz del navegador se conserva. Bridge v2 admite solo texto, sin transcripción ni imágenes.</div></div>
         </div>
         <div class="sourcebox" style="margin-top:12px">
-          La clave secreta de OpenAI no se guarda en el teléfono. NOA Mobile solo conoce la URL y un token de tu Bridge.
+          Las claves de los proveedores se configuran exclusivamente en el servidor. NOA solo envía la URL y el token de tu Bridge. No pegues aquí claves de Groq.
         </div>
       </div>
     </div>
@@ -797,7 +803,9 @@ const blank=()=>({version:6,subjects:[],topics:[],cards:[],notes:[],questions:[]
   ollamaModel:'gemma3:4b',
   bridgeUrl:'http://localhost:8787',
   bridgeToken:'',
-  openaiModel:'gpt-5.6-luna'
+  openaiModel:'gpt-5.6-luna',
+  groqModel:'openai/gpt-oss-120b',
+  cloudflareModel:'@cf/google/gemma-4-26b-a4b-it'
 }});
 let db=load();
 let reviewQueue=[],
@@ -3507,94 +3515,84 @@ if('serviceWorker' in navigator){
   window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 }
 
+function selectedAIModel(){return window.NOA_AI_BRIDGE_V2?.selectedModel(db.settings)||null;}
+function clearAIConnection(){
+  const box=document.getElementById('aiConnectionStatus');if(!box)return;
+  delete box.dataset.requestId;box.textContent='Sin probar.';box.className='sourcebox';
+  for(const id of ['aiReportedProvider','aiReportedModel','aiModelVerification'])document.getElementById(id).textContent='Sin probar';
+}
 function selectAIProvider(p){
-  ensureV6();db.settings.aiProvider=p;
-  document.querySelectorAll('.provider-option').forEach(x=>x.classList.toggle('active',x.dataset.provider===p));
-  renderAISettingsVisibility();save();
+  ensureV6();db.settings.aiProvider=p;clearAIConnection();renderAISettingsVisibility();save();
 }
 function renderAISettingsVisibility(){
   const p=db.settings.aiProvider;
-  const oll=document.getElementById('ollamaSettings'),bridge=document.getElementById('bridgeSettings');
-  if(oll)oll.style.display=(p==='ollama'||p==='ollama_bridge')?'block':'none';
-  if(bridge)bridge.style.display=(p==='openai'||p==='ollama_bridge')?'block':'none';
-  document.querySelectorAll('.provider-option').forEach(x=>x.classList.toggle('active',x.dataset.provider===p));
-  const s=document.getElementById('coachAIStatus');
-  if(s)s.textContent={
-    offline:'Modo offline: memoria, temario y búsqueda local.',
-    ollama:'Ollama directo: '+db.settings.ollamaUrl+' · '+db.settings.ollamaModel,
-    ollama_bridge:'Ollama mediante NOA Bridge.',
-    openai:'OpenAI mediante NOA Bridge · '+db.settings.openaiModel
-  }[p]||'Sin configurar';
+  const bridge=['groq','cloudflare','openai','ollama_bridge'].includes(p);
+  document.getElementById('ollamaSettings').style.display=['ollama','ollama_bridge'].includes(p)?'block':'none';
+  document.getElementById('bridgeSettings').style.display=bridge?'block':'none';
+  for(const [id,provider] of [['groqModelSettings','groq'],['cloudflareModelSettings','cloudflare'],['openaiModelSettings','openai']]){
+    document.getElementById(id).style.display=p===provider?'grid':'none';
+  }
+  const legacy=['openai','ollama_bridge'].includes(p),busy=document.getElementById('aiConnectionStatus').dataset.testing==='true';
+  document.querySelectorAll('.provider-option').forEach(x=>{x.classList.toggle('active',x.dataset.provider===p);x.setAttribute('aria-pressed',String(x.dataset.provider===p));x.disabled=busy;});
+  for(const id of ['aiGroqModel','aiCloudflareModel'])document.getElementById(id).disabled=busy;
+  document.getElementById('aiTestConnection').disabled=legacy||busy;
+  document.getElementById('aiProviderNotice').textContent=legacy?'Este proveedor no está disponible con Bridge v2. Se conservan sus preferencias; no se sustituirá por otro proveedor.':
+    bridge?'Requiere un Bridge v2 configurado. Solo texto. La identidad del modelo depende de los metadatos del servidor.':p==='ollama'?'Ollama directo usa su propia URL; no envía el token del Bridge.':'Modo offline: no se contacta con IA.';
+  const labels={offline:'Offline',groq:'Groq',cloudflare:'Cloudflare Workers AI',ollama:'Ollama directo',openai:'OpenAI (no disponible con Bridge v2)',ollama_bridge:'Ollama Bridge anterior (no disponible con v2)'};
+  document.getElementById('aiSelectedProvider').textContent=labels[p]||'Proveedor no reconocido';
+  document.getElementById('aiRequestedModel').textContent=selectedAIModel()||'No aplica';
+  const status=document.getElementById('coachAIStatus');if(status)status.textContent='Proveedor seleccionado: '+(labels[p]||'Sin configurar')+'.';
 }
 function loadAISettingsUI(){
   ensureV6();
-  const map={
-    aiOllamaUrl:db.settings.ollamaUrl,
-    aiOllamaModel:db.settings.ollamaModel,
-    aiBridgeUrl:db.settings.bridgeUrl,
-    aiBridgeToken:db.settings.bridgeToken,
-    aiOpenAIModel:db.settings.openaiModel
-  };
-  Object.entries(map).forEach(([id,val])=>{const e=document.getElementById(id);if(e)e.value=val||''});
+  const map={aiOllamaUrl:db.settings.ollamaUrl,aiOllamaModel:db.settings.ollamaModel,
+    aiBridgeUrl:db.settings.bridgeUrl,aiBridgeToken:db.settings.bridgeToken,aiOpenAIModel:db.settings.openaiModel,
+    aiGroqModel:db.settings.groqModel,aiCloudflareModel:db.settings.cloudflareModel};
+  Object.entries(map).forEach(([id,val])=>{const e=document.getElementById(id);if(e)e.value=val||'';});
   renderAISettingsVisibility();
 }
 function saveAISettings(){
-  ensureV6();
-  const get=id=>document.getElementById(id)?.value.trim()||'';
-  db.settings.ollamaUrl=get('aiOllamaUrl')||'http://localhost:11434';
-  db.settings.ollamaModel=get('aiOllamaModel')||'gemma3:4b';
-  db.settings.bridgeUrl=get('aiBridgeUrl')||'http://localhost:8787';
-  db.settings.bridgeToken=get('aiBridgeToken');
-  db.settings.openaiModel=get('aiOpenAIModel')||'gpt-5.6-luna';
-  save();renderAISettingsVisibility();toast('Configuración de IA guardada');
+  ensureV6();const get=id=>document.getElementById(id)?.value.trim()||'';
+  db.settings.ollamaUrl=get('aiOllamaUrl')||'http://localhost:11434';db.settings.ollamaModel=get('aiOllamaModel')||'gemma3:4b';
+  db.settings.bridgeUrl=get('aiBridgeUrl')||'http://localhost:8787';db.settings.bridgeToken=get('aiBridgeToken');
+  db.settings.openaiModel=get('aiOpenAIModel')||db.settings.openaiModel||'gpt-5.6-luna';
+  db.settings.groqModel=get('aiGroqModel')||db.settings.groqModel||'openai/gpt-oss-120b';
+  db.settings.cloudflareModel=get('aiCloudflareModel')||db.settings.cloudflareModel||'@cf/google/gemma-4-26b-a4b-it';
+  clearAIConnection();save();renderAISettingsVisibility();toast('Configuración de IA guardada');
 }
-function cleanBase(u){return String(u||'').replace(/\/+$/,'')}
+function cleanBase(u){return String(u||'').replace(/\/+$/,'');}
 function bridgeHeaders(){
-  const h={'Content-Type':'application/json'};
-  if(db.settings.bridgeToken)h['Authorization']='Bearer '+db.settings.bridgeToken;
-  return h;
+  const h={'Content-Type':'application/json'};if(db.settings.bridgeToken)h.Authorization='Bearer '+db.settings.bridgeToken;return h;
 }
-async function callAI(messages,options={}){
-  ensureV6();
-  const p=db.settings.aiProvider;
-  if(p==='offline')throw new Error('NOA está en modo offline');
-
-  if(p==='ollama'){
-    const url=cleanBase(db.settings.ollamaUrl)+'/api/chat';
-    const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      model:options.model||db.settings.ollamaModel,
-      messages,stream:false,options:{temperature:options.temperature??0.35}
-    })});
-    if(!r.ok)throw new Error('Ollama respondió '+r.status);
-    const j=await r.json();return j.message?.content||j.response||'';
-  }
-
-  const provider=p==='ollama_bridge'?'ollama':'openai';
-  const r=await fetch(cleanBase(db.settings.bridgeUrl)+'/api/chat',{
-    method:'POST',headers:bridgeHeaders(),body:JSON.stringify({
-      provider,
-      model:provider==='openai'?(options.model||db.settings.openaiModel):(options.model||db.settings.ollamaModel),
-      messages,
-      temperature:options.temperature??0.35
-    })
-  });
-  const j=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error(j.error||('Bridge respondió '+r.status));
-  return j.text||'';
+function callAI(messages,options={}){
+  if(!window.NOA_AI_BRIDGE_V2)return Promise.reject(new Error('El transporte de IA no está disponible. Recarga la aplicación.'));
+  return window.NOA_AI_BRIDGE_V2.call(messages,options);
+}
+function showAIReceipt(metadata){
+  document.getElementById('aiReportedProvider').textContent=metadata.provider||
+    (metadata.transport==='ollama-direct'?'Ollama (ruta directa)':'No reportado');
+  document.getElementById('aiReportedModel').textContent=metadata.model||'Modelo no verificado';
+  document.getElementById('aiModelVerification').textContent=metadata.identityStatus==='mismatch'?'Discrepancia':
+    metadata.identityVerified?'Coincidencia verificada':metadata.model?'Coincidencia no verificada':'Modelo no verificado';
 }
 async function testAIConnection(){
+  const e=document.getElementById('aiConnectionStatus');if(e.dataset.testing==='true')return;
   saveAISettings();
-  const e=document.getElementById('aiConnectionStatus');e.textContent='Probando…';e.className='sourcebox';
-  if(db.settings.aiProvider==='offline'){
-    e.textContent='Modo offline activo ✓';e.classList.add('ai-offline');return;
-  }
+  if(db.settings.aiProvider==='offline'){e.textContent='Modo offline activo; no se probó una conexión de IA.';return;}
+  const provider=db.settings.aiProvider,model=selectedAIModel(),id=crypto.randomUUID();
+  e.dataset.requestId=id;e.dataset.testing='true';e.textContent='Probando…';renderAISettingsVisibility();
+  const current=()=>e.dataset.requestId===id&&db.settings.aiProvider===provider&&selectedAIModel()===model;
   try{
-    const out=await callAI([{role:'user',content:'Responde únicamente: NOA OK'}],{temperature:0});
-    e.textContent='Conexión correcta ✓ '+out.slice(0,80);e.classList.add('ai-online');
-    speak('Conexión de inteligencia lista.');
+    const pending=callAI([{role:'user',content:'Responde únicamente: NOA OK'}],{temperature:0});
+    await pending;const metadata=await pending.metadata();
+    if(!current())return;
+    showAIReceipt(metadata);e.textContent=metadata.identityVerified?'Respuesta recibida con coincidencia de modelo verificada.':
+      'Respuesta recibida; identidad del modelo no verificada.';e.className='sourcebox ai-online';
   }catch(err){
-    e.textContent='No pude conectar: '+err.message;e.classList.add('ai-error');
-  }
+    if(!current())return;
+    if(err.metadata)showAIReceipt(err.metadata);
+    e.textContent='No pude conectar: '+err.message+(err.retryAfter?' Reintenta después de '+err.retryAfter+' segundos.':'');e.className='sourcebox ai-error';
+  }finally{delete e.dataset.testing;renderAISettingsVisibility();}
 }
 function extractJSON(text){
   const cleaned=String(text).replace(/```json/gi,'').replace(/```/g,'').trim();
@@ -3722,18 +3720,20 @@ const _originalToggleVoice=toggleVoice;
 toggleVoice=function(){
   if(stopBridgeRecording())return;
   if(SR)return _originalToggleVoice();
-  if(db.settings?.aiProvider==='openai')return startBridgeRecording();
-  toast('Activa OpenAI Bridge o usa un navegador con reconocimiento de voz');
+  if(db.settings?.aiProvider==='openai')return toast('Bridge v2 no admite transcripción. Usa el reconocimiento de voz del navegador.');
+  toast('Bridge v2 solo admite texto. Usa un navegador con reconocimiento de voz');
 };
 
 ensureV6();
-setTimeout(loadAISettingsUI,100);
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',loadAISettingsUI,{once:true});
+else loadAISettingsUI();
 
 ensureV5();
 setTimeout(initVoice,300);
 
 renderTimer();renderAll();addMsg('noa','Hola. Soy NOA. Ahora también puedes hablarme. Prueba: “NOA, carga el temario EXCOBA” o “NOA, créame una guía de biología”.');
 </script>
+  <script src="./excoba_patch_ai_bridge_v2.js"></script>
   <script src="./excoba_master.js"></script>
   <script src="./excoba_patch_v3.js"></script>
   <script src="./excoba_patch_v4.js"></script>
