@@ -687,6 +687,8 @@ ${difficultyContext(slot)}
 
 ${sourceContext(slot)}
 
+${window.NOA_JUDGE_ACADEMIC.alignmentContext(slot)}
+
 
 NÚMERO APROXIMADO DE ELEMENTOS:
 
@@ -862,6 +864,8 @@ FUENTE:
 
 ${sourceContext(slot)}
 
+${window.NOA_JUDGE_ACADEMIC.alignmentContext(slot)}
+
 
 REACTIVO:
 
@@ -893,7 +897,7 @@ ${JSON.stringify(
 
 CONTRATO DE RESPUESTA (JSON Schema, no es un ejemplo de calificaciones):
 
-${window.NOA_JUDGE_ACADEMIC.responseContract('drag_classify')}`
+${window.NOA_JUDGE_ACADEMIC.responseContract('drag_classify', slot)}`
         }
 
       ],{
@@ -904,7 +908,7 @@ ${window.NOA_JUDGE_ACADEMIC.responseContract('drag_classify')}`
 
 
     const {judge, accepted} = window.NOA_JUDGE_ACADEMIC.evaluate(
-      parseObject(raw), 'drag_classify'
+      parseObject(raw), 'drag_classify', slot
     );
 
     return {...question, judge, accepted};

@@ -21,6 +21,17 @@ function review(format, score = 9.2) {
   };
 }
 
+// Explicit positive semantic verdict for synthetic pipeline tests. This mock
+// does not judge real content; adversarial tests supply their own verdicts.
+function alignedReview(format, messages) {
+  const scope = JSON.parse(messages.map(message => message.content).join('\n')
+    .match(/CATÁLOGO DEL SLOT \(JSON\):\n([^\n]+)\nFIN CATÁLOGO DEL SLOT/)[1]);
+  return { ...review(format), source_alignment:{status:'pass',
+    syllabusCodes:scope.topics.map(topic => topic.code),
+    assessedSkill:'Habilidad declarada en una fixture técnica aislada.',
+    requiresUnrelatedKnowledge:false, reason:'Correspondencia simulada para comprobar el pipeline; no certifica calidad curricular real.'} };
+}
+
 const correctCell = {
   interactionType: 'single_select', instruction: 'Selecciona la opción correcta.',
   text: '¿Qué estructura distingue a una célula eucariota de una procariota?',
@@ -84,10 +95,23 @@ const cases = [
 
 async function installJudgeFixture(page) {
   await page.evaluate(({ metrics, criteria, cases }) => {
+    // openGenerator's small UX fixture invents prefix-based topic codes.
+    // Real Judge tests must build slots from the existing canonical catalog.
+    db.masterSyllabus = { id:'uaq-excoba-2026-2-medicina',
+      items:NOA_EXCOBA_FIX_V5.items.map(item => ({...item})) };
+    save();
     const state = window.__judgeFixture = { metrics, criteria, cases, calls: [], forbidden: 0, reply: null };
+    window.__mockAlignmentReply = (reply, messages) => {
+      if(!reply || typeof reply !== 'object' || !reply.academic_review || Object.hasOwn(reply,'source_alignment')) return reply;
+      const scope = JSON.parse(messages.map(message => message.content).join('\n')
+        .match(/CATÁLOGO DEL SLOT \(JSON\):\n([^\n]+)\nFIN CATÁLOGO DEL SLOT/)[1]);
+      return {...reply, source_alignment:{status:'pass', syllabusCodes:scope.topics.map(topic => topic.code),
+        assessedSkill:'Habilidad declarada en fixture técnica.', requiresUnrelatedKnowledge:false,
+        reason:'Correspondencia simulada; no demuestra evaluación semántica de un modelo real.'}};
+    };
     window.callAI = async (messages, options) => {
       state.calls.push({ messages: structuredClone(messages), options: structuredClone(options) });
-      return typeof state.reply === 'string' ? state.reply : JSON.stringify(state.reply);
+      return typeof state.reply === 'string' ? state.reply : JSON.stringify(__mockAlignmentReply(state.reply, messages));
     };
     window.fetch = () => { state.forbidden++; throw new Error('La suite Judge no permite solicitudes de red.'); };
     state.slot = (format, subject = 'EXCOBA Medicina · Biología') => NOA_SOURCE_BLUEPRINT.build({
@@ -154,7 +178,7 @@ async function installPipelineAI(page) {
       state.calls.push({ kind: isJudge ? 'judge' : 'generator', format, messages: clone(messages), options: clone(options) });
       if (isJudge) {
         state.judged++;
-        return JSON.stringify({ ...Object.fromEntries(metrics[format].map(key => [key, 9.2])), academic_review: Object.fromEntries(criteria.map(key => [key, { status: key === 'non_overlap' && ['single_select', 'inline_select'].includes(format) ? 'not_applicable' : 'pass', reason: 'Revisión sintética positiva para comprobar el contrato del software.' }])), critical_issues: [], comments: 'Modelo simulado: no certifica calidad científica real.' });
+        return JSON.stringify(__mockAlignmentReply({ ...Object.fromEntries(metrics[format].map(key => [key, 9.2])), academic_review: Object.fromEntries(criteria.map(key => [key, { status: key === 'non_overlap' && ['single_select', 'inline_select'].includes(format) ? 'not_applicable' : 'pass', reason: 'Revisión sintética positiva para comprobar el contrato del software.' }])), critical_issues: [], comments: 'Modelo simulado: no certifica calidad científica real.' }, messages));
       }
       const subject = prompt.match(/MATERIA:\s*([^\n]+)/)?.[1] || '';
       const catalogue = subject.includes('Español') ? spanish : subject.includes('sociales') ? social : subject.includes('Química') ? chemistry : subject.includes('estadística') ? stats : subject.includes('Matemáticas') ? math : biology;
@@ -168,4 +192,4 @@ async function installPipelineAI(page) {
   }, { metrics, criteria, correctCell });
 }
 
-module.exports = { metrics, criteria, formats, cases, correctCell, review, installJudgeFixture, judgeQuestion, installPipelineAI };
+module.exports = { metrics, criteria, formats, cases, correctCell, review, alignedReview, installJudgeFixture, judgeQuestion, installPipelineAI };

@@ -1,4 +1,4 @@
-const {review}=require('./judge-academic-fixtures.cjs');
+const {alignedReview}=require('./judge-academic-fixtures.cjs');
 const bridge='https://noa-bridge-v2.test';
 const token='fixture-only-not-a-real-secret';
 async function configure(page,provider='groq',model){
@@ -39,7 +39,7 @@ async function physicsBridge(page,options={}){
   const format=isJudge?(prompt.includes('"sequence_validity"')?'drag_order':prompt.includes('"blank_quality"')?'inline_select':prompt.includes('"classification_quality"')?'drag_classify':'single_select'):
    system.includes('Drag Order Generator')?'drag_order':system.includes('Inline Select Generator')?'inline_select':system.includes('Drag Generator')?'drag_classify':'single_select';
   const intercepted=options.respond?.({body,isJudge,format,stats});if(intercepted)return intercepted;
-  const value=isJudge?(stats.judged++,review(format)):(stats.formats.push(format),physicsItem(format,++stats.generated));
+  const value=isJudge?(stats.judged++,alignedReview(format,body.messages)):(stats.formats.push(format),physicsItem(format,++stats.generated));
   return {body:receipt(body,JSON.stringify(value),{id:'synthetic-'+(stats.generated+stats.judged)})};
  });
  return {calls,stats};

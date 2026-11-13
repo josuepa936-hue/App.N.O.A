@@ -124,7 +124,7 @@ test.describe('Bridge v2 con Service Worker real',()=>{
  test('offline conserva transporte y preferencias sin acceder a proveedores',async({page,context})=>{
   await configure(page,'groq','openai/gpt-oss-20b');await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const cache=await page.evaluate(async()=>{const scope=(await navigator.serviceWorker.getRegistration()).scope,name=(await caches.keys()).find(n=>n.startsWith('noa-mobile:'+encodeURIComponent(scope)+':'));return {name,asset:!!await(await caches.open(name)).match(new URL('excoba_patch_ai_bridge_v2.js',scope).href)};});
-  expect(cache.name).toMatch(/:v6-99$/);expect(cache.asset).toBe(true);const before=await page.evaluate(()=>JSON.stringify(db.attempts));
+  expect(cache.name).toMatch(/:v6-100$/);expect(cache.asset).toBe(true);const before=await page.evaluate(()=>JSON.stringify(db.attempts));
   await context.setOffline(true);await page.reload();await page.waitForFunction(()=>!!window.NOA_AI_BRIDGE_V2);await aiPage(page);
   await expect(page.locator('#aiGroqModel')).toHaveValue('openai/gpt-oss-20b');await expect(page.locator('#aiRequestedModel')).toHaveText('openai/gpt-oss-20b');expect(await page.evaluate(()=>JSON.stringify(db.attempts))).toBe(before);
  });
