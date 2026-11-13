@@ -642,6 +642,22 @@ REGLAS:
 
 - cada elemento debe tener UNA categoría correcta.
 - las categorías deben ser conceptualmente claras.
+- define un único criterio científico de clasificación y categorías
+  distinguibles entre sí según ese criterio; expresa sus definiciones
+  en las etiquetas o en el contexto, sin añadir campos al JSON.
+- no mezcles magnitudes, procesos, propiedades o mecanismos distintos
+  bajo una denominación ambigua ni los presentes como sinónimos.
+- en Física, distingue formas de energía de mecanismos de transferencia:
+  la energía cinética está asociada al movimiento; trabajo y calor son
+  mecanismos de transferencia de energía. No uses una categoría vaga
+  como "energía de movimiento o transferencia" para agruparlos.
+  La potencia es una tasa de transferencia de energía, no una energía;
+  no la clasifiques como forma de energía.
+- cada elemento debe tener una sola asignación científicamente defendible
+  entre las categorías propuestas. Explicita el contexto y los supuestos
+  necesarios; si admite dos asignaciones, reformula el elemento o el
+  criterio dentro del mismo Blueprint, sin cambiar materia, dificultad,
+  fuente ni formato bloqueados.
 - evita pistas obvias por vocabulario.
 - los elementos deben requerir comprensión.
 - no uses categorías redundantes.
@@ -729,6 +745,9 @@ REGLAS FINALES:
 - utiliza al menos dos categorías.
 - ningún elemento puede pertenecer
   correctamente a dos categorías.
+- antes de emitir el JSON, comprueba las definiciones y la ausencia de
+  solapamientos para cada elemento. La explicación debe justificar cada
+  asignación según el criterio, sin equiparar conceptos distintos.
 - no hagas evidente la respuesta
   por similitud lingüística.
 - en dificultad 4-5,
