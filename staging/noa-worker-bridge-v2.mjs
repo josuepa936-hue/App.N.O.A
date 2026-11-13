@@ -7,6 +7,7 @@
  */
 
 const CLOUDFLARE_MODEL = '@cf/google/gemma-4-26b-a4b-it';
+const CLOUDFLARE_EXTERNAL_MODEL = '@cf/google/gemma-4-26b-a4b-it-external';
 const GROQ_MODELS = new Set([
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
@@ -140,6 +141,14 @@ async function answerWithGroq(env, messages, model, temperature, headers) {
   if (typeof env.GROQ_API_KEY !== 'string' || !env.GROQ_API_KEY.trim()) {
     return json({ error: 'GROQ_API_KEY no está disponible en este Worker' }, 503, headers);
   }
+  const payload = { model, messages, temperature, stream: false, max_completion_tokens: MAX_OUTPUT_TOKENS };
+  // Model-specific options. Never combine include_reasoning with reasoning_format.
+  if (model === 'openai/gpt-oss-120b' || model === 'openai/gpt-oss-20b') {
+    payload.include_reasoning = false;
+  } else if (model === 'qwen/qwen3.8-27b') {
+    // Official Groq SDK: this model supports reasoning_effort none (its default).
+    payload.reasoning_effort = 'none';
+  }
   let upstream;
   try {
     upstream = await fetch(GROQ_ENDPOINT, {
@@ -148,15 +157,7 @@ async function answerWithGroq(env, messages, model, temperature, headers) {
         'Authorization': `Bearer ${env.GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        stream: false,
-        max_completion_tokens: MAX_OUTPUT_TOKENS,
-        // No transmitimos ni devolvemos trazas internas de razonamiento.
-        reasoning_format: 'hidden'
-      }),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(60000)
     });
   } catch {
@@ -217,16 +218,18 @@ async function answerWithCloudflare(env, messages, model, temperature, headers) 
   const text = extractText(result);
   if (!text.trim()) return json({ error: 'Cloudflare AI no devolvió texto' }, 502, headers);
   const reported = typeof result?.model === 'string' ? result.model : null;
-  if (reported && reported !== model) {
+  const external = reported === CLOUDFLARE_EXTERNAL_MODEL;
+  if (reported && reported !== model && !external) {
     return json({ error: 'Cloudflare AI reportó un modelo distinto del solicitado' }, 502, headers);
   }
   return json({
     text,
     provider: 'cloudflare',
     requestedModel: model,
-    model: reported,
+    model: external ? null : reported,
+    ...(external ? { reportedModel: reported } : {}),
     verified: reported === model,
-    verificationStatus: reported === model ? 'matched' : 'not_reported',
+    verificationStatus: external ? 'external_unverified' : reported === model ? 'matched' : 'not_reported',
     id: typeof result?.id === 'string' ? result.id.slice(0, 128) : null,
     usage: cleanUsage(result?.usage)
   }, 200, headers);

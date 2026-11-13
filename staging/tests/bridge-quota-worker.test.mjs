@@ -46,3 +46,31 @@ test('successful model receipt remains compatible',async()=>{
 });
 
 test('ambiguous periods remain unknown instead of guessing daily',async()=>{const r=await limited({error:{message:'tokens per minute (TPM), requests per day (RPD)'}});assert.equal(r.payload.rateLimit.type,'unknown');});
+
+const cloudflareModel='@cf/google/gemma-4-26b-a4b-it';
+const externalModel='@cf/google/gemma-4-26b-a4b-it-external';
+function requestFor(provider,wanted){return new Request('https://staging.test/api/chat',{method:'POST',headers:{Origin:origin,Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({provider,model:wanted,messages:[{role:'user',content:'Fixture only'}],temperature:0})});}
+for(const wanted of ['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b'])test('model-specific Groq payload '+wanted,async()=>{
+ let payload;
+ globalThis.fetch=async(url,options)=>{assert.equal(url,'https://api.groq.com/openai/v1/chat/completions');payload=JSON.parse(options.body);assert.equal(options.headers.Authorization,'Bearer '+env.GROQ_API_KEY);return new Response(JSON.stringify({model:wanted,choices:[{message:{content:'NOA OK'}}]}));};
+ try{
+  const response=await worker.fetch(requestFor('groq',wanted),env);assert.equal(response.status,200);
+  assert.equal(payload.model,wanted);assert.equal(payload.stream,false);assert.equal(payload.temperature,0);assert.equal(payload.max_completion_tokens,3000);assert.deepEqual(payload.messages,[{role:'user',content:'Fixture only'}]);assert.ok(!Object.hasOwn(payload,'reasoning_format'));
+  if(wanted.startsWith('openai/')){assert.equal(payload.include_reasoning,false);assert.ok(!Object.hasOwn(payload,'reasoning_effort'));}
+  else{assert.equal(payload.reasoning_effort,'none');assert.ok(!Object.hasOwn(payload,'include_reasoning'));}
+  const result=await response.json();assert.equal(result.verified,true);for(const secret of [token,env.GROQ_API_KEY])assert.ok(!JSON.stringify(result).includes(secret));
+ }finally{globalThis.fetch=nativeFetch;}
+});
+for(const reported of [cloudflareModel,externalModel])test('Cloudflare documented identity '+reported,async()=>{
+ const configured={...env,AI:{async run(wanted,options){assert.equal(wanted,cloudflareModel);assert.deepEqual(options.chat_template_kwargs,{enable_thinking:false});return {response:'Texto conservado',model:reported,id:'fixture-cf-id',usage:{prompt_tokens:0,total_tokens:2},reasoning:'fixture-private-reasoning',secret:'fixture-private-secret'};}}};
+ const response=await worker.fetch(requestFor('cloudflare',cloudflareModel),configured),result=await response.json();assert.equal(response.status,200);assert.equal(result.text,'Texto conservado');assert.equal(result.provider,'cloudflare');assert.equal(result.requestedModel,cloudflareModel);assert.equal(result.id,'fixture-cf-id');assert.equal(result.usage.prompt_tokens,0);
+ if(reported===cloudflareModel){assert.equal(result.model,cloudflareModel);assert.equal(result.verified,true);assert.equal(result.verificationStatus,'matched');}
+ else{assert.equal(result.model,null);assert.equal(result.reportedModel,externalModel);assert.equal(result.verified,false);assert.equal(result.verificationStatus,'external_unverified');}
+ for(const text of ['fixture-private-reasoning','fixture-private-secret',token,env.GROQ_API_KEY])assert.ok(!JSON.stringify(result).includes(text));
+});
+for(const reported of [externalModel+'-v2',externalModel+'-other','@cf/google/another-model-external',cloudflareModel+' '])test('unknown Cloudflare identity remains rejected '+JSON.stringify(reported),async()=>{
+ const response=await worker.fetch(requestFor('cloudflare',cloudflareModel),{...env,AI:{async run(){return {response:'Do not accept',model:reported};}}});const payload=await response.json();assert.equal(response.status,502);assert.ok(!Object.hasOwn(payload,'text'));assert.ok(!Object.hasOwn(payload,'verified'));
+});
+test('external identifier is never accepted as the requested public model',async()=>{
+ let called=false;const response=await worker.fetch(requestFor('cloudflare',externalModel),{...env,AI:{run(){called=true;}}});assert.equal(response.status,400);assert.equal(called,false);
+});

@@ -124,7 +124,7 @@ test.describe('Bridge v2 con Service Worker real',()=>{
  test('offline conserva transporte y preferencias sin acceder a proveedores',async({page,context})=>{
   await configure(page,'groq','openai/gpt-oss-20b');await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const cache=await page.evaluate(async()=>{const scope=(await navigator.serviceWorker.getRegistration()).scope,name=(await caches.keys()).find(n=>n.startsWith('noa-mobile:'+encodeURIComponent(scope)+':'));return {name,asset:!!await(await caches.open(name)).match(new URL('excoba_patch_ai_bridge_v2.js',scope).href)};});
-  expect(cache.name).toMatch(/:v6-97$/);expect(cache.asset).toBe(true);const before=await page.evaluate(()=>JSON.stringify(db.attempts));
+  expect(cache.name).toMatch(/:v6-98$/);expect(cache.asset).toBe(true);const before=await page.evaluate(()=>JSON.stringify(db.attempts));
   await context.setOffline(true);await page.reload();await page.waitForFunction(()=>!!window.NOA_AI_BRIDGE_V2);await aiPage(page);
   await expect(page.locator('#aiGroqModel')).toHaveValue('openai/gpt-oss-20b');await expect(page.locator('#aiRequestedModel')).toHaveText('openai/gpt-oss-20b');expect(await page.evaluate(()=>JSON.stringify(db.attempts))).toBe(before);
  });
@@ -133,4 +133,31 @@ test.describe('Bridge v2 con Service Worker real',()=>{
 for(const provider of ['groq','cloudflare'])test('HTTP 502 de discrepancia del Worker '+provider+' se distingue de indisponibilidad',async({page})=>{
  await configure(page,provider);await mockBridge(page,()=>({status:502,body:{error:provider==='groq'?'Groq reportó un modelo distinto del solicitado':'Cloudflare AI reportó un modelo distinto del solicitado'}}));
  await aiPage(page);await page.locator('#aiTestConnection').click();await expect(page.locator('#aiModelVerification')).toHaveText('Discrepancia');await expect(page.locator('#aiReportedModel')).toHaveText('Modelo no verificado');await expect(page.locator('#aiConnectionStatus')).toContainText('No se utilizará');
+});
+
+const publicGemma='@cf/google/gemma-4-26b-a4b-it';
+const externalGemma='@cf/google/gemma-4-26b-a4b-it-external';
+async function cloudflareWorkerRoute(page,reported){
+ const worker=(await import('../staging/noa-worker-bridge-v2.mjs')).default;
+ await mockBridge(page,async body=>{
+  const response=await worker.fetch(new Request('https://staging.test/api/chat',{method:'POST',headers:{Origin:'http://127.0.0.1:8022',Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)}),{
+   NOA_BRIDGE_TOKEN:token,NOA_ALLOWED_ORIGINS:'http://127.0.0.1:8022',AI:{async run(model){expect(model).toBe(publicGemma);return {response:'Texto simulado conservado',model:reported,id:'fixture-cf-reported',usage:{prompt_tokens:0,total_tokens:2}};}}
+  });
+  return {status:response.status,body:await response.json()};
+ });
+}
+for(const reported of [publicGemma,externalGemma])test('frontend interpreta la respuesta real del candidato Worker '+reported,async({page})=>{
+ await configure(page,'cloudflare');await cloudflareWorkerRoute(page,reported);
+ const result=await page.evaluate(async()=>{const pending=callAI([{role:'user',content:'Respuesta sintética; no inferencia real'}]);return {text:await pending,metadata:await pending.metadata()};});
+ expect(result.text).toBe('Texto simulado conservado');expect(result.metadata.requestedModel).toBe(publicGemma);expect(result.metadata.usage.prompt_tokens).toBe(0);
+ await aiPage(page);await page.locator('#aiTestConnection').click();
+ if(reported===publicGemma){expect(result.metadata.model).toBe(publicGemma);expect(result.metadata.identityVerified).toBe(true);await expect(page.locator('#aiModelVerification')).toHaveText('Coincidencia verificada');}
+ else{expect(result.metadata).toMatchObject({model:null,reportedModel:externalGemma,verified:false,verificationStatus:'external_unverified',identityStatus:'external_unverified',identityVerified:false});await expect(page.locator('#aiReportedModel')).toContainText(externalGemma);await expect(page.locator('#aiReportedModel')).toContainText('Modelo no verificado');await expect(page.locator('#aiModelVerification')).toHaveText('Modelo no verificado');await expect(page.locator('#aiConnectionStatus')).toContainText('identidad del modelo no verificada');}
+});
+test('modelo desconocido del candidato no llega al frontend como texto utilizable',async({page})=>{
+ await configure(page,'cloudflare');await cloudflareWorkerRoute(page,externalGemma+'-v2');const result=await page.evaluate(async()=>{try{await callAI([{role:'user',content:'desconocido'}]);return {accepted:true};}catch(e){return {accepted:false,status:e.status,code:e.code};}});expect(result).toEqual({accepted:false,status:502,code:'identity_mismatch'});
+});
+for(const variant of ['unknown','verified','status','model'])test('reportedModel no permite ampliar la excepción externa: '+variant,async({page})=>{
+ await configure(page,'cloudflare');await mockBridge(page,body=>({body:receipt(body,'No aceptar',{model:null,reportedModel:externalGemma,verified:false,verificationStatus:'external_unverified',...(variant==='unknown'?{reportedModel:externalGemma+'-other'}:variant==='verified'?{verified:true}:variant==='status'?{verificationStatus:'matched'}:{model:publicGemma})})}));
+ const result=await page.evaluate(async()=>{try{await callAI([{role:'user',content:'claims incompatibles'}]);return null;}catch(e){return e.code;}});expect(result).toBe('identity_mismatch');
 });

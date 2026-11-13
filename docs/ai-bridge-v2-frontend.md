@@ -1,5 +1,9 @@
 # NOA AI Bridge v2 — frontend de texto
 
+La sincronización final de parámetros e identidad externa se describe en
+[ai-bridge-v2-staging-sync.md](ai-bridge-v2-staging-sync.md). El alias documentado
+conserva el texto y reportedModel, con model:null y sin verificación de identidad.
+
 La corrección de HTTP 429 del mismo PR #26 se documenta en
 [ai-bridge-v2-quotas.md](ai-bridge-v2-quotas.md): pausa compartida, concurrencia y
 candidato de staging, sin despliegue.
@@ -93,7 +97,7 @@ que sí lo exponga permite mostrar su valor saneado. El candidato nuevo de
 aparecer como error de red porque el navegador no entrega el estado HTTP.
 
 El nuevo script se carga antes de los motores y se incorpora a ASSETS.
-La caché pasa de v6-95 a **v6-97**, conservando el aislamiento por scope.
+La caché pasa de v6-95 a **v6-98**, conservando el aislamiento por scope.
 No se implementa Vision, procesamiento de imágenes ni transcripción remota v2.
 El reconocimiento de voz propio del navegador se conserva.
 
@@ -177,7 +181,7 @@ no se suman sus ejecuciones a las pruebas distintas aprobadas.
 - `tests/topic-diversity.spec.cjs`
 
 Los cambios de versión en suites existentes actualizan la expectativa del
-Service Worker a v6-97. No se incorporan los adjuntos del servidor a producción.
+Service Worker a v6-98. No se incorporan los adjuntos del servidor a producción.
 
 ## Validación final ejecutada
 
@@ -209,7 +213,7 @@ por solicitud, concurrencia Generator/Judge, 400/401/403/429/502/503, rechazo de
 respuestas inválidas, preservación del examen, Física de cinco preguntas,
 créditos, cuatro formatos compatibles, recuperación, respaldos, cierre v26 y
 simulacros de 45/180. Se verificaron Groq y Cloudflare en 320/390/1365 px y el
-nuevo recurso en una caché offline real v6-97. Los Judges del software son reales
+nuevo recurso en una caché offline real v6-98. Los Judges del software son reales
 en esas pruebas, pero sus respuestas de IA se simulan: no demuestran evaluación
 científica ni disponibilidad real de los proveedores.
 

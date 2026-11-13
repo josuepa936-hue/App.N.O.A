@@ -3571,7 +3571,7 @@ function callAI(messages,options={}){
 function showAIReceipt(metadata){
   document.getElementById('aiReportedProvider').textContent=metadata.provider||
     (metadata.transport==='ollama-direct'?'Ollama (ruta directa)':'No reportado');
-  document.getElementById('aiReportedModel').textContent=metadata.model||'Modelo no verificado';
+  document.getElementById('aiReportedModel').textContent=metadata.model||(metadata.reportedModel?metadata.reportedModel+' (Modelo no verificado)':'Modelo no verificado');
   document.getElementById('aiModelVerification').textContent=metadata.identityStatus==='mismatch'?'Discrepancia':
     metadata.identityVerified?'Coincidencia verificada':metadata.model?'Coincidencia no verificada':'Modelo no verificado';
 }

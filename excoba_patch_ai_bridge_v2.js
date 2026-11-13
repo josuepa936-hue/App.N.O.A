@@ -26,11 +26,16 @@
   }
   function metadataFor(data,config){
     const safe=value=>typeof value==='string'&&value.trim()?value.split(config.token||'\u0000').join('[oculto]').slice(0,200):null;
-    const provider=safe(data.provider),requestedModel=safe(data.requestedModel),model=safe(data.model);
+    const provider=safe(data.provider),requestedModel=safe(data.requestedModel),model=safe(data.model),reportedModel=safe(data.reportedModel);
     const verified=typeof data.verified==='boolean'?data.verified:null;
     const verificationStatus=safe(data.verificationStatus);
     const direct=config.provider==='ollama';
-    const mismatch=!!((provider&&provider!==config.provider)||(requestedModel&&requestedModel!==config.model)||(model&&model!==config.model));
+    // Only the exact alias observed for this public Cloudflare model is admitted.
+    const externalUnverified=config.provider==='cloudflare'&&config.model==='@cf/google/gemma-4-26b-a4b-it'&&
+      provider===config.provider&&requestedModel===config.model&&data.model===null&&
+      reportedModel==='@cf/google/gemma-4-26b-a4b-it-external'&&verified===false&&verificationStatus==='external_unverified';
+    const mismatch=!!((provider&&provider!==config.provider)||(requestedModel&&requestedModel!==config.model)||(model&&model!==config.model)||
+      (reportedModel&&reportedModel!==config.model&&!externalUnverified));
     const matched=!!model&&model===config.model&&(direct||
       (provider===config.provider&&requestedModel===config.model&&verified===true&&verificationStatus==='matched'));
     const usage={};
@@ -39,9 +44,9 @@
     }
     return {requestId:config.requestId,transport:direct?'ollama-direct':'bridge-v2',
       requestedProvider:config.provider,clientRequestedModel:config.model,
-      provider,requestedModel,model,verified,verificationStatus,
+      provider,requestedModel,model,reportedModel,verified,verificationStatus,
       identityVerified:!mismatch&&matched,
-      identityStatus:mismatch?'mismatch':matched?'matched':!model?'not_reported':'unverified',
+      identityStatus:mismatch?'mismatch':externalUnverified?'external_unverified':matched?'matched':!model?'not_reported':'unverified',
       id:safe(data.id),usage:Object.keys(usage).length?usage:null};
   }
   // Provider/model safety latches. They never contain credentials or academic data.
