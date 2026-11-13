@@ -39,10 +39,10 @@ test('perfil B de 45 se recupera intacto aunque la selección futura vuelva a A'
 
 test.describe('Física con Service Worker real',()=>{
  test.use({serviceWorkers:'allow'});
- test('v6-96 conserva módulo, catálogo y perfiles offline y rechaza generación sin conexión',async({page,context})=>{
+ test('v6-97 conserva módulo, catálogo y perfiles offline y rechaza generación sin conexión',async({page,context})=>{
   await page.evaluate(()=>navigator.serviceWorker.ready);await page.waitForFunction(()=>!!navigator.serviceWorker.controller);
   const cache=await page.evaluate(async()=>{const scope=(await navigator.serviceWorker.getRegistration()).scope,name=(await caches.keys()).find(n=>n.startsWith('noa-mobile:'+encodeURIComponent(scope)+':'));return {name,asset:!!await(await caches.open(name)).match(new URL('excoba_patch_preparation_physics.js',scope).href)};});
-  expect(cache.name).toMatch(/:v6-96$/);expect(cache.asset).toBe(true);
+  expect(cache.name).toMatch(/:v6-97$/);expect(cache.asset).toBe(true);
   await context.setOffline(true);await page.reload();await page.waitForFunction(()=>!!window.NOA_EXCOBA_PREPARATION);
   await page.locator('#nav button[data-page="exam"]').click();await page.locator('#noaPreparationProfile').selectOption('B');
   await page.locator('#noaGeneratorSubject').selectOption(await page.evaluate(()=>NOA_EXCOBA_PREPARATION.physics().value));

@@ -32,12 +32,13 @@ function physicsItem(format,index){
  };
  const q=structuredClone(items[format]);for(const key of ['question','text','stem'])if(q[key])q[key]+=' Caso sintético '+index+'.';return q;
 }
-async function physicsBridge(page){
+async function physicsBridge(page,options={}){
  const stats={generated:0,judged:0,formats:[]};
  const calls=await mockBridge(page,body=>{
   const system=body.messages[0].content,prompt=body.messages.at(-1).content,isJudge=system.includes('Judge');
   const format=isJudge?(prompt.includes('"sequence_validity"')?'drag_order':prompt.includes('"blank_quality"')?'inline_select':prompt.includes('"classification_quality"')?'drag_classify':'single_select'):
    system.includes('Drag Order Generator')?'drag_order':system.includes('Inline Select Generator')?'inline_select':system.includes('Drag Generator')?'drag_classify':'single_select';
+  const intercepted=options.respond?.({body,isJudge,format,stats});if(intercepted)return intercepted;
   const value=isJudge?(stats.judged++,review(format)):(stats.formats.push(format),physicsItem(format,++stats.generated));
   return {body:receipt(body,JSON.stringify(value),{id:'synthetic-'+(stats.generated+stats.judged)})};
  });

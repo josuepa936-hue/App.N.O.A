@@ -1,5 +1,9 @@
 # NOA AI Bridge v2 — frontend de texto
 
+La corrección de HTTP 429 del mismo PR #26 se documenta en
+[ai-bridge-v2-quotas.md](ai-bridge-v2-quotas.md): pausa compartida, concurrencia y
+candidato de staging, sin despliegue.
+
 Esta rama recupera la implementación local de `feature/noa-ai-bridge-v2`.
 No fue necesario reconstruir los archivos. La base es `main` en
 `504dbda7de13b21f4e5032094a0748339c9af941` (PR #25 integrado).
@@ -71,7 +75,7 @@ sin mostrar cuerpos de error arbitrarios. Se reconocen únicamente los dos
 mensajes fijos de discrepancia de modelo que el candidato devuelve con HTTP 502;
 se informa la discrepancia sin inventar el modelo rechazado. El transporte no cambia de proveedor
 ni reintenta automáticamente. El Batch conserva sus reposiciones limitadas
-existentes. Hay un límite de espera de 70 segundos por solicitud.
+existentes para errores distintos de cuota; HTTP 429 detiene el lote sin reposiciones. Hay un límite de espera de 70 segundos por solicitud.
 
 ## Seguridad, CORS y PWA
 
@@ -81,13 +85,15 @@ contraseña existente; no se añade a los recibos ni a las capturas de texto.
 Las URL no admiten credenciales, parámetros ni fragmentos.
 
 El candidato adjunto permite leer `Retry-After` únicamente si el navegador
-expone ese encabezado. Actualmente no declara `Access-Control-Expose-Headers`:
+expone ese encabezado. El adjunto original no declara `Access-Control-Expose-Headers`:
 la interfaz informa el límite 429 sin inventar segundos. Un servidor de staging
-que sí lo exponga permite mostrar su valor saneado. Un rechazo CORS puede
+que sí lo exponga permite mostrar su valor saneado. El candidato nuevo de
+`staging/noa-worker-bridge-v2.mjs` lo expone y transmite también el campo seguro
+`rateLimit.retryAfterSeconds`; el cliente puede usarlo sin inventar un plazo. Un rechazo CORS puede
 aparecer como error de red porque el navegador no entrega el estado HTTP.
 
 El nuevo script se carga antes de los motores y se incorpora a ASSETS.
-La caché pasa de v6-95 a **v6-96**, conservando el aislamiento por scope.
+La caché pasa de v6-95 a **v6-97**, conservando el aislamiento por scope.
 No se implementa Vision, procesamiento de imágenes ni transcripción remota v2.
 El reconocimiento de voz propio del navegador se conserva.
 
@@ -171,7 +177,7 @@ no se suman sus ejecuciones a las pruebas distintas aprobadas.
 - `tests/topic-diversity.spec.cjs`
 
 Los cambios de versión en suites existentes actualizan la expectativa del
-Service Worker a v6-96. No se incorporan los adjuntos del servidor a producción.
+Service Worker a v6-97. No se incorporan los adjuntos del servidor a producción.
 
 ## Validación final ejecutada
 
@@ -203,7 +209,7 @@ por solicitud, concurrencia Generator/Judge, 400/401/403/429/502/503, rechazo de
 respuestas inválidas, preservación del examen, Física de cinco preguntas,
 créditos, cuatro formatos compatibles, recuperación, respaldos, cierre v26 y
 simulacros de 45/180. Se verificaron Groq y Cloudflare en 320/390/1365 px y el
-nuevo recurso en una caché offline real v6-96. Los Judges del software son reales
+nuevo recurso en una caché offline real v6-97. Los Judges del software son reales
 en esas pruebas, pero sus respuestas de IA se simulan: no demuestran evaluación
 científica ni disponibilidad real de los proveedores.
 

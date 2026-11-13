@@ -66,7 +66,7 @@ test('v24 conserva perfiles v6 y estado inicial/adaptativo del Calibrator existe
     const label = await page.evaluate(() => NOA_SOURCE_ENGINE.getProfile().label);
     await page.locator('#nav button[data-page="exam"]').click(); await expect(page.locator('#noaGeneratorProfile')).toContainText(label);
   }
-  expect(await page.locator('#noaGeneratorCard select').count()).toBe(2);
+  expect(await page.locator('#noaGeneratorCard select').evaluateAll(selects=>selects.map(select=>select.id))).toEqual(['noaGeneratorSubject','noaGeneratorCount','noaGeneratorConcurrency']);
   for (const sample of [0, 4, 5]) {
     const adaptive = await page.evaluate(sample => {
       db.attempts = sample ? [{ answers: Array.from({ length: sample }, () => ({ blueprint: { difficulty: 3 }, scoreFraction: 1, ok: true })) }] : [];
@@ -229,7 +229,7 @@ test.describe('v24 etapa 2 con service worker real', () => {
       const name = (await caches.keys()).find(name => name.startsWith(`noa-mobile:${encodeURIComponent(scope)}:`));
       return { name, v24: !!await (await caches.open(name)).match(new URL('excoba_patch_v24_generator_ui.js', scope).href) };
     });
-    expect(cached.name).toMatch(/:v6-96$/); expect(cached.v24).toBe(true);
+    expect(cached.name).toMatch(/:v6-97$/); expect(cached.v24).toBe(true);
     await context.setOffline(true); await page.reload(); await page.waitForFunction(() => !!window.NOA_GENERATOR_UI);
     await page.locator('#nav button[data-page="exam"]').click(); const before = await examState(page); await generate(page).click();
     await expect(phase(page)).toHaveText('Error del motor'); await expect(page.locator('#noaGeneratorDetails')).toContainText(/conexi[oó]n|offline|internet/i);

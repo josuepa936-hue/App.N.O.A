@@ -9,6 +9,24 @@
   let message = '';
   let diagnostics = null;
 
+  function concurrency(){
+    const groq=db.settings.aiProvider==='groq',stored=db.settings[groq?'groqGeneratorConcurrency':'aiGeneratorConcurrency'];
+    return [1,2,3].includes(stored)?stored:groq?1:2;
+  }
+  function quota(){return window.NOA_AI_BRIDGE_V2?.quotaState();}
+  function showQuota(){
+    const q=quota(),notice=element('noaGeneratorQuota'),resume=element('noaGeneratorResumeQuota');
+    if(notice)notice.textContent=q?window.NOA_AI_BRIDGE_V2.quotaMessage(q):'';
+    if(resume){resume.hidden=!q;resume.disabled=busy||!!window.NOA_EXAM_UI_V25?.state?.()?.busy;}
+    return q;
+  }
+  function resumeQuota(){
+    const result=window.NOA_AI_BRIDGE_V2.resumeQuota();
+    if(result.resumed)status('Listo para generar','Pausa retirada manualmente. Pulsa Generar con IA para iniciar un lote nuevo; no se reanudó ninguna solicitud automáticamente.');
+    else status('Límite del proveedor',result.storageError?'No se pudo actualizar la pausa guardada. Se conserva el examen.':result.pending?'Todavía se están cerrando solicitudes anteriores. No se enviaron nuevas solicitudes.':window.NOA_AI_BRIDGE_V2.quotaMessage(result.quota));
+    refresh();
+  }
+
   function subjects(){
     const syllabus = window.NOA_EXCOBA_V4;
     return (window.NOA_EXCOBA_PREPARATION?.trainingSubjects() || syllabus?.subjects || []).filter(subject => syllabus.itemsFor(subject.value).length > 0);
@@ -88,7 +106,9 @@
       const validSubject = available.some(subject => subject.value === select.value);
       select.disabled = busy || !available.length;
       element('noaGeneratorCount').disabled = busy;
-      element('noaGeneratorGenerate').disabled = busy || !!window.NOA_EXAM_UI_V25?.state?.()?.busy || !validSubject ||
+      const parallel=element('noaGeneratorConcurrency');if(parallel){parallel.disabled=busy;if(!busy)parallel.value=String(concurrency());}
+      const paused=showQuota();
+      element('noaGeneratorGenerate').disabled = !!paused || busy || !!window.NOA_EXAM_UI_V25?.state?.()?.busy || !validSubject ||
         typeof window.NOA_BATCH_ORCHESTRATOR?.generate !== 'function' ||
         ![5,10].includes(Number(element('noaGeneratorCount').value));
       card.setAttribute('aria-busy', String(busy));
@@ -160,6 +180,7 @@
     window.NOA_EXAM_UI_V25?.refresh?.();
     try{
       if(!refresh()) return;
+      window.NOA_AI_BRIDGE_V2?.assertAvailable();
       const subject = element('noaGeneratorSubject').value;
       const count = Number(element('noaGeneratorCount').value);
       if(!subjects().some(item => item.value === subject) || ![5,10].includes(count)){
@@ -178,7 +199,7 @@
       status('Preparando generación', 'Preparando materia, perfil y ciclo de dificultad.');
       await new Promise(resolve => setTimeout(resolve, 0));
       const pending = window.NOA_BATCH_ORCHESTRATOR.generate({
-        subject, blueprintCount:count, limit:count, concurrency:2, maxAttempts:2,
+        subject, blueprintCount:count, limit:count, concurrency:concurrency(), maxAttempts:2,
         diversifyTopics:true, avoidHistoryDuplicates:true
       });
       status('Generando y evaluando reactivos', 'NOA está generando y evaluando el lote. Tu sesión actual se conserva.');
@@ -201,7 +222,8 @@
       window.NOA_MIXED_EXAM.start(questions, 'Simulacro inteligente NOA');
       status('Generación completada', `${counts} Simulacro inteligente NOA iniciado.`);
     }catch(error){
-      status('Error del motor', `${error?.message || 'No se pudo generar el lote.'} Se conserva la sesión anterior. Puedes volver a intentarlo.`);
+      const limited=window.NOA_AI_BRIDGE_V2?.isQuotaError(error);
+      status(limited?'Límite del proveedor':'Error del motor', `${error?.message || 'No se pudo generar el lote.'} Se conserva la sesión anterior.${limited?'':' Puedes volver a intentarlo.'}`);
     }finally{
       busy = false;
       refresh();
@@ -238,17 +260,22 @@
           <select id="noaGeneratorCount"><option value="5">5</option><option value="10">10</option></select>
         </div>
       </div>
+      <div class="field"><label for="noaGeneratorConcurrency">Solicitudes simultáneas del generador</label><select id="noaGeneratorConcurrency"><option value="1">1 · recomendado para Groq</option><option value="2">2</option><option value="3">3</option></select></div>
       <p class="small" id="noaGeneratorProfile"></p>
       <p class="small" id="noaGeneratorCalibration"></p>
       <div class="small" id="noaGeneratorStatus" role="status" aria-live="polite" aria-atomic="true">
         <b id="noaGeneratorPhase"></b><p id="noaGeneratorDetails"></p>
-        <p id="noaGeneratorHistory"></p>
+        <p id="noaGeneratorHistory"></p><p id="noaGeneratorQuota"></p>
       </div>
       <p class="small">Judge es una evaluación interna de NOA; no es una validación oficial de la UAQ.</p>
+      <button class="btn" id="noaGeneratorResumeQuota" type="button" hidden>Comprobar y reanudar manualmente</button>
       <button class="btn primary" id="noaGeneratorGenerate" type="button" disabled aria-describedby="noaGeneratorStatus">Generar con IA</button>
     `;
     exam.prepend(card);
     element('noaGeneratorGenerate').addEventListener('click', generate);
+    element('noaGeneratorResumeQuota').addEventListener('click',resumeQuota);
+    element('noaGeneratorConcurrency').addEventListener('change',()=>{db.settings[db.settings.aiProvider==='groq'?'groqGeneratorConcurrency':'aiGeneratorConcurrency']=Number(element('noaGeneratorConcurrency').value);save();});
+    window.addEventListener('noa-ai-quota-change',refresh);
 
     const previousRenderAll = window.renderAll;
     window.renderAll = function(...args){
@@ -264,7 +291,7 @@
     });
     window.addEventListener('focus', refresh);
     window.addEventListener('pageshow', refresh);
-    window.NOA_GENERATOR_UI = {version:'24.2-batch', refresh, generate, state:() => ({busy, phase, diagnostics:diagnostics ? JSON.parse(JSON.stringify(diagnostics)) : null})};
+    window.NOA_GENERATOR_UI = {version:'24.2-batch', refresh, generate, concurrency, state:() => ({busy, phase, diagnostics:diagnostics ? JSON.parse(JSON.stringify(diagnostics)) : null})};
     showDiagnostics(null);
     refresh();
   }

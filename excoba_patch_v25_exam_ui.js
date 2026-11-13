@@ -79,7 +79,7 @@
       element('Availability').textContent = `No se pudieron consultar los motores: ${error?.message || 'datos no disponibles'}.`;
       return false;
     }finally{
-      element('Generate').disabled = busy || peerBusy() || !available;
+      element('Generate').disabled = busy || peerBusy() || !available || !!window.NOA_AI_BRIDGE_V2?.quotaState();
       element('Card').setAttribute('aria-busy', String(busy));
       window.NOA_EXCOBA_PREPARATION?.refresh();
     }
@@ -163,6 +163,7 @@
       await pause();
       assert(typeof window.NOA_EXAM_PLAN_V25?.build === 'function' && typeof window.NOA_MULTI_BATCH_V25?.generate === 'function' &&
         typeof window.NOA_MIXED_EXAM?.start === 'function', 'Faltan los motores del simulacro de 45 reactivos.');
+      window.NOA_AI_BRIDGE_V2?.assertAvailable();
       const plan = window.NOA_EXAM_PLAN_V25.build({diversifyTopics:true,preparationProfile});
       assert(plan?.valid === true && plan.total === 45 && Array.isArray(plan.unsupportedSlots) && !plan.unsupportedSlots.length &&
         plan.slots?.length === 45 && plan.subjects?.length === 9,
@@ -180,7 +181,7 @@
       status('Generando reactivos', 'Preparando 45 reactivos con evaluación interna de Judge. Se conserva la sesión anterior.');
       acceptingProgress = true;
       const result = await window.NOA_MULTI_BATCH_V25.generate({
-        plan, concurrency:2, maxAttempts:2, avoidHistoryDuplicates:true,
+        plan, concurrency:window.NOA_GENERATOR_UI?.concurrency?.()||2, maxAttempts:2, avoidHistoryDuplicates:true,
         onProgress:event => {
           if(!busy || run !== sequence || !acceptingProgress) return;
           const subject = activePlan.subjects.find(item => item.id === event?.subject && item.groupId === event?.groupId);
@@ -217,8 +218,9 @@
       status('Generación completa', '45 reactivos aceptados. Simulacro EXCOBA Medicina iniciado.');
       document.getElementById('examBox')?.scrollIntoView({block:'start'});
     }catch(error){
-      status('Error de conexión o del motor', `${error?.message || 'No se pudo preparar el simulacro.'} ` +
-        (starting ? 'No se pudo iniciar el simulacro.' : 'No se inició un examen; se conserva la sesión anterior. Puedes volver a intentarlo.'));
+      const limited=window.NOA_AI_BRIDGE_V2?.isQuotaError(error);
+      status(limited?'Límite del proveedor':'Error de conexión o del motor', `${error?.message || 'No se pudo preparar el simulacro.'} ` +
+        (starting ? 'No se pudo iniciar el simulacro.' : 'No se inició un examen; se conserva la sesión anterior.'+(limited?' Reanuda manualmente tras comprobar la pausa.':' Puedes volver a intentarlo.')));
     }finally{
       acceptingProgress = false;
       busy = false;
@@ -276,6 +278,7 @@
     document.addEventListener('change', event => { if(event.target.id === 'excobaTrainingProfile') refresh(); });
     document.addEventListener('click', event => { if(event.target.closest('#nav button[data-page="exam"]')) refresh(); });
     window.addEventListener('focus', refresh);
+    window.addEventListener('noa-ai-quota-change', refresh);
     window.addEventListener('pageshow', refresh);
     window.NOA_EXAM_UI_V25 = {version:'25.2-ui', refresh, generate, state:() => ({busy, phase, progress:progress ? JSON.parse(JSON.stringify(progress)) : null,
       diagnostics:diagnostics ? JSON.parse(JSON.stringify(diagnostics)) : null})};

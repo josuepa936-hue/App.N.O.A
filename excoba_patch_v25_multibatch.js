@@ -245,7 +245,7 @@
     const accepted = new Map(), contents = new Map(), ids = new Map();
     const checker = avoidHistoryDuplicates ? createHistoryChecker() : null;
     const historicalDuplicates = [];
-    let generationErrors = 0;
+    let generationErrors = 0,quotaFailure=null;
     const diagnostics = () => ({accepted:accepted.size,
       internalDuplicates:new Set(duplicates.map(item => `${item.planSlotId}:${item.attempt}`)).size,
       historicalDuplicates:historicalDuplicates.length,replacements:replacements.length,generationErrors,history:checker.snapshot()});
@@ -314,6 +314,7 @@
           accepted.set(item.id, record);
           break;
         }catch(error){
+          if(window.NOA_AI_BRIDGE_V2?.isQuotaError(error)||error?.status===429){quotaFailure=error;throw error;}
           const message = error?.message || String(error);
           if(checker && reason === 'generation_error') generationErrors++;
           history.push({attempt, error:message, ...(checker ? {reason} : {})});
@@ -334,6 +335,7 @@
         let cursor = 0;
         const workers = Array.from({length:parallel}, async () => {
           while(cursor < batch.length){
+            if(quotaFailure)return;
             const item = batch[cursor++];
             await processSlot(item);
           }
