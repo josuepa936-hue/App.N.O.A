@@ -565,6 +565,8 @@ ${difficultyContext(slot)}
 
 ${sourceContext(slot)}
 
+${window.NOA_JUDGE_ACADEMIC.alignmentContext(slot)}
+
 REGLAS DE REALISMO:
 
 ${JSON.stringify(
@@ -688,6 +690,50 @@ REGLAS FINALES:
     return JUDGE_THRESHOLDS[format];
   }
 
+  // Read canonical academic definitions, never trust the labels copied onto
+  // a generated question. Course-only sources retain their existing scope.
+  function alignmentScope(slot){
+    const codes = slot?.syllabusCodes;
+    if(!Array.isArray(codes) || codes.some(code => !nonempty(code))){
+      throw new Error('Blueprint sin códigos curriculares verificables.');
+    }
+    const catalog = window.NOA_ACADEMIC_RESULTS_V27?.catalog?.();
+    const items = codes.map(code => catalog?.items?.find(item =>
+      item.code === code && item.subject === slot.subject));
+    if(items.some(item => !item) || new Set(codes).size !== codes.length){
+      throw new Error('Los códigos del Blueprint no corresponden al catálogo de la materia.');
+    }
+    const courseOnly = slot.source?.kind === 'course' && nonempty(slot.source.material);
+    if(!items.length && !courseOnly) throw new Error('No hay alcance curricular verificable para el slot.');
+    return { subject:slot.subject, sourceType:slot.sourceType,
+      topics:items.map(item => ({code:item.code, title:item.title, focus:item.focus,
+        reference:item.reference?.kind === 'alternative' ? 'alternative' : 'official'})),
+      ...(courseOnly ? {courseScope:{title:slot.source.title,
+        objective:slot.source.objective?.text || null}} : {}) };
+  }
+
+  function alignmentContext(slot){
+    return `CATÁLOGO DEL SLOT (JSON):
+${JSON.stringify(alignmentScope(slot))}
+FIN CATÁLOGO DEL SLOT
+
+La correspondencia curricular depende de la habilidad NECESARIA para resolver
+el reactivo, no de subject, sus etiquetas, el formato ni el tema del relato.
+Respeta los códigos, títulos y alcances verificados anteriores y el Blueprint
+bloqueado. No cambies materia, dificultad, formato, fuente ni procedencia.
+En Español, un texto histórico puede servir de contexto para comprensión,
+inferencia, ortografía o redacción si la tarea corresponde al subtema elegido.
+Pedir fechas de Independencia de memoria evalúa Historia, aunque haya espacios
+seleccionables. Inferir fechas del texto suministrado puede ser lectura válida
+en Recuento histórico (1.1.1); no rechaces por mencionar fechas o Historia.
+Ortografía (1.1.5) y Sintaxis (1.1.6) requieren sus propias habilidades; una
+pregunta de lectura no corresponde automáticamente a cualquier código de Español.
+Aplica el mismo criterio en todas las materias: distingue contexto incidental
+de conocimiento o procedimiento evaluado. No exijas conocimientos ajenos al
+alcance para obtener la respuesta. En curso o extensión conserva sus reglas
+y no inventes anclas oficiales.`;
+  }
+
   function academicInstructions(format){
     const metrics = Object.keys(judgeThresholds(format)).map(key =>
       `${key} = ${JUDGE_METRIC_DESCRIPTIONS[key]}.`
@@ -738,6 +784,17 @@ Estas precauciones no sustituyen la evaluación del resto del contenido.
 
 source_fidelity evalúa alcance y respaldo de la fuente; que un tema figure en
 el temario oficial no demuestra la verdad de cada afirmación del reactivo.
+Cuando recibas CATÁLOGO DEL SLOT, contrasta semánticamente el enunciado, cada
+opción, espacio, elemento o etapa, la clave y la explicación con esos alcances.
+Declara en source_alignment la habilidad realmente evaluada (assessedSkill),
+los syllabusCodes que la respaldan, requiresUnrelatedKnowledge y una reason
+concreta que enlace la operación exigida y la información disponible con el
+subtema. No copies la etiqueta subject como justificación. Usa fail si evalúa
+otra disciplina/subtema o necesita conocimientos ajenos; uncertain si no puedes
+establecer la correspondencia. Solo usa pass con una justificación específica.
+Una desalineación no se compensa con exactitud factual ni buena redacción:
+source_fidelity debe reflejarla y ningún source_alignment fail o uncertain
+puede aprobarse. No confundas un contexto histórico con memorización histórica.
 No supongas que buena redacción o un promedio alto subsanan un error científico.
 Informa los fallos críticos en critical_issues como textos concretos; usa [] solo
 si no los identificas. Cualquier issue, fail o uncertain bloquea la aceptación
@@ -746,7 +803,7 @@ Esta es una evaluación interna de IA, no una validación científica independie
 ni una certificación oficial de la UAQ. No inventes contrastes o fuentes externas.`;
   }
 
-  function academicResponseContract(format){
+  function academicResponseContract(format, slot){
     const metricProperties = Object.fromEntries(Object.keys(judgeThresholds(format)).map(key => [
       key, {type:'number', minimum:0, maximum:10}
     ]));
@@ -759,20 +816,28 @@ ni una certificación oficial de la UAQ. No inventes contrastes o fuentes extern
       },
       required:['status','reason']
     }]));
+    const alignment = slot ? {source_alignment:{type:'object', properties:{
+      status:{type:'string', enum:['pass','fail','uncertain']},
+      syllabusCodes:{type:'array', items:{type:'string'}, uniqueItems:true},
+      assessedSkill:{type:'string', minLength:1, pattern:'\\S'},
+      requiresUnrelatedKnowledge:{type:'boolean'},
+      reason:{type:'string', minLength:1, pattern:'\\S'}
+    }, required:['status','syllabusCodes','assessedSkill','requiresUnrelatedKnowledge','reason']}} : {};
     return JSON.stringify({
       $schema:'https://json-schema.org/draft/2020-12/schema',
       type:'object',
       properties:{
         ...metricProperties,
+        ...alignment,
         academic_review:{type:'object', properties:reviewProperties, required:ACADEMIC_CHECKS},
         critical_issues:{type:'array', items:{type:'string', minLength:1, pattern:'\\S'}},
         comments:{type:'string'}
       },
-      required:[...Object.keys(metricProperties),'academic_review','critical_issues']
+      required:[...Object.keys(metricProperties),'academic_review','critical_issues',...Object.keys(alignment)]
     }, null, 2);
   }
 
-  function evaluateAcademicJudge(raw, format){
+  function evaluateAcademicJudge(raw, format, slot){
     const thresholds = judgeThresholds(format);
     const input = record(raw) ? raw : {};
     const validationErrors = [];
@@ -811,19 +876,36 @@ ni una certificación oficial de la UAQ. No inventes contrastes o fuentes extern
     if(own(input,'comments') && typeof input.comments !== 'string'){
       validationErrors.push('comments debe ser texto cuando se incluye.');
     }
+    let source_alignment;
+    if(slot){
+      const scope = alignmentScope(slot), check = input.source_alignment;
+      const valid = record(check) && ['pass','fail','uncertain'].includes(check.status) &&
+        nonempty(check.assessedSkill) && nonempty(check.reason) &&
+        typeof check.requiresUnrelatedKnowledge === 'boolean' && Array.isArray(check.syllabusCodes) &&
+        check.syllabusCodes.every(code => typeof code === 'string' && scope.topics.some(topic => topic.code === code)) &&
+        new Set(check.syllabusCodes).size === check.syllabusCodes.length &&
+        (check.status !== 'pass' || !scope.topics.length || check.syllabusCodes.length > 0);
+      if(!valid) validationErrors.push('source_alignment faltante o inválido: se requiere correspondencia semántica con los subtemas verificados del slot.');
+      source_alignment = valid ? {status:check.status, syllabusCodes:[...check.syllabusCodes],
+        assessedSkill:check.assessedSkill.trim(), requiresUnrelatedKnowledge:check.requiresUnrelatedKnowledge,
+        reason:check.reason.trim()} : {status:'uncertain', syllabusCodes:[], assessedSkill:null,
+        requiresUnrelatedKnowledge:null, reason:'No se recibió una comprobación curricular válida.'};
+    }
+    const alignmentPass = !slot || (source_alignment.status === 'pass' && source_alignment.requiresUnrelatedKnowledge === false);
     const contractValid = validationErrors.length === 0;
     const academicPass = Object.values(academic_review).every(check =>
       check.status === 'pass' || check.status === 'not_applicable'
     ) && critical_issues.length === 0;
     const judge = {
       ...metrics,
+      ...(slot ? {source_alignment} : {}),
       comments:typeof input.comments === 'string' ? input.comments.trim() : '',
       qualityScore, academic_review, critical_issues, contractValid, validationErrors,
-      requiresHumanReview:!contractValid || !academicPass,
+      requiresHumanReview:!contractValid || !academicPass || !alignmentPass,
       policyVersion:JUDGE_POLICY_VERSION,
       evaluationScope:'internal_ai'
     };
-    const accepted = contractValid && academicPass && qualityScore >= 8.2 &&
+    const accepted = contractValid && academicPass && alignmentPass && qualityScore >= 8.2 &&
       Object.entries(thresholds).every(([key, minimum]) => metrics[key] >= minimum);
     return {judge, accepted};
   }
@@ -831,6 +913,7 @@ ni una certificación oficial de la UAQ. No inventes contrastes o fuentes extern
   window.NOA_JUDGE_ACADEMIC = {
     version:JUDGE_POLICY_VERSION,
     instructions:academicInstructions,
+    alignmentContext,
     responseContract:academicResponseContract,
     evaluate:evaluateAcademicJudge
   };
@@ -852,6 +935,8 @@ ${JSON.stringify({
 FUENTE:
 ${sourceContext(slot)}
 
+${window.NOA_JUDGE_ACADEMIC.alignmentContext(slot)}
+
 REACTIVO:
 ${JSON.stringify({
   question:question.text, options:question.options, correct:question.correct,
@@ -859,9 +944,9 @@ ${JSON.stringify({
 }, null, 2)}
 
 CONTRATO JSON DE RESPUESTA (esquema, no ejemplo de calificación):
-${window.NOA_JUDGE_ACADEMIC.responseContract('single_select')}`}
+${window.NOA_JUDGE_ACADEMIC.responseContract('single_select', slot)}`}
     ], {temperature:0});
-    const {judge, accepted} = window.NOA_JUDGE_ACADEMIC.evaluate(parseObject(raw), 'single_select');
+    const {judge, accepted} = window.NOA_JUDGE_ACADEMIC.evaluate(parseObject(raw), 'single_select', slot);
     return {...question, judge, accepted};
   }
 

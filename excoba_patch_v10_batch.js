@@ -17,6 +17,7 @@
 (() => {
 
   const VERSION = '10.0';
+  const isQuotaError=error=>window.NOA_AI_BRIDGE_V2?.isQuotaError(error)||error?.status===429;
 
   const SUPPORTED_TYPES = [
     'single_select'
@@ -159,11 +160,13 @@
 
 
     let cursor = 0;
+    let quotaFailure = null;
 
 
     async function runner(){
 
       while(true){
+        if(quotaFailure)return;
 
         const index =
           cursor++;
@@ -189,6 +192,7 @@
           };
 
         }catch(error){
+          if(isQuotaError(error))quotaFailure=error;
 
           results[index] = {
             status:'rejected',
@@ -219,6 +223,8 @@
       workers
     );
 
+
+    if(quotaFailure)throw quotaFailure;
 
     return results;
 
@@ -490,6 +496,7 @@
           if(question.id) ids.add(question.id);
           return {...result,attempts:attempt,duplicate:false};
         }catch(error){
+          if(isQuotaError(error))throw error;
           lastError = error?.message || String(error);
           lastReason = reason;
           if(reason === 'generation_error') generationErrors++;

@@ -527,6 +527,8 @@ FUENTE:
 
 ${sourceContext(slot)}
 
+${window.NOA_JUDGE_ACADEMIC.alignmentContext(slot)}
+
 
 CREA:
 
@@ -680,6 +682,8 @@ FUENTE:
 
 ${sourceContext(slot)}
 
+${window.NOA_JUDGE_ACADEMIC.alignmentContext(slot)}
+
 
 REACTIVO:
 
@@ -704,7 +708,7 @@ ${JSON.stringify(
 
 CONTRATO DE RESPUESTA (JSON Schema, no es un ejemplo de calificaciones):
 
-${window.NOA_JUDGE_ACADEMIC.responseContract('inline_select')}`
+${window.NOA_JUDGE_ACADEMIC.responseContract('inline_select', slot)}`
         }
 
       ],{
@@ -715,7 +719,7 @@ ${window.NOA_JUDGE_ACADEMIC.responseContract('inline_select')}`
 
 
     const {judge, accepted} = window.NOA_JUDGE_ACADEMIC.evaluate(
-      parseObject(raw), 'inline_select'
+      parseObject(raw), 'inline_select', slot
     );
 
     return {...question, judge, accepted};
