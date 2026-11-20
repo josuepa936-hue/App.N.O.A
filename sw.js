@@ -1,7 +1,7 @@
 const CACHE_SCOPE = self.registration.scope;
 const CACHE_PREFIX =
   'noa-mobile:' + encodeURIComponent(CACHE_SCOPE) + ':';
-const CACHE = CACHE_PREFIX + 'v6-100';
+const CACHE = CACHE_PREFIX + 'v6-101';
 
 
 const ASSETS = [
@@ -24,6 +24,8 @@ const ASSETS = [
   './excoba_patch_preparation_physics.js',
 
   './excoba_patch_v6_sources.js',
+
+  './excoba_addon_course_only.js',
 
   './excoba_patch_v7_realism.js',
 
@@ -132,9 +134,10 @@ self.addEventListener(
 
       caches
         .open(CACHE)
-        .then(cache =>
-          cache.addAll(ASSETS)
-        )
+        .then(cache => cache.addAll(ASSETS.map(asset =>
+          // An update must not populate its new cache from an older HTTP response.
+          new Request(new URL(asset, CACHE_SCOPE), {cache:'reload'})
+        )))
         .then(() =>
           self.skipWaiting()
         )
