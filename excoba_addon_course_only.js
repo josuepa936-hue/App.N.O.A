@@ -10,6 +10,7 @@
   if (!engine || typeof engine.getCourseSources !== 'function') return;
 
   const originalGetSources = engine.getCourseSources.bind(engine);
+  const supportedSubject = 'excoba secundaria · ciencias sociales';
   const key = 'NOA_COURSE_ONLY_ADDON_V1:' + new URL('./', document.baseURI).pathname;
 
   function read() {
@@ -20,14 +21,22 @@
   }
   let marked = read();
 
-  function sourceExists(id) {
-    return originalGetSources('').some(s => s && s.id === id);
+  function findSource(id) {
+    return originalGetSources('').find(source => source?.id === id);
   }
-  function isMarked(id) { return typeof id === 'string' && marked.has(id); }
+  function supports(source) {
+    return typeof source?.subject === 'string' && source.subject.trim().toLowerCase() === supportedSubject;
+  }
+  function isMarked(id) {
+    return typeof id === 'string' && marked.has(id) && supports(findSource(id));
+  }
   function setMarked(id, enabled) {
-    if (typeof id !== 'string' || !id || typeof enabled !== 'boolean' || !sourceExists(id)) {
+    if (typeof id !== 'string' || !id || typeof enabled !== 'boolean') {
       return {ok:false, error:'invalid_source'};
     }
+    const source = findSource(id);
+    if (!source) return {ok:false, error:'invalid_source'};
+    if (!supports(source)) return {ok:false, error:'unsupported_subject'};
     const next = new Set(marked);
     if (enabled) next.add(id);
     else next.delete(id);
@@ -38,20 +47,15 @@
     return {ok:true, enabled:isMarked(id)};
   }
   function effectiveSource(source) {
-    if (!source || !isMarked(source.id) || source.analysisStatus !== 'ready' || !source.analysis) return source;
-    const analysis = source.analysis;
-    // An immutable copy is consumed by Source Blueprint v8. Original analysis is preserved.
-    return {
-      ...source,
-      analysis: {
-        ...analysis,
-        overall_classification: 'course_only',
-        syllabus_links: [],
-        concepts: Array.isArray(analysis.concepts)
-          ? analysis.concepts.map(concept => ({...concept, classification:'course_only', syllabus_codes:[]}))
-          : []
-      }
-    };
+    if (!supports(source) || !marked.has(source.id) || source.analysisStatus !== 'ready' || !source.analysis) return source;
+    const effective = structuredClone(source);
+    const analysis = effective.analysis;
+    analysis.overall_classification = 'course_only';
+    analysis.syllabus_links = [];
+    analysis.concepts = Array.isArray(analysis.concepts)
+      ? analysis.concepts.map(concept => ({...concept, classification:'course_only', syllabus_codes:[]}))
+      : [];
+    return effective;
   }
   // Blueprint uses this API. The original analyzer and its saved result stay unchanged.
   engine.getCourseSources = function(subject) {
@@ -66,10 +70,14 @@
     if (!list) return;
     for (const trigger of list.querySelectorAll('[data-analyze-course]')) {
       const id = trigger.getAttribute('data-analyze-course');
-      const source = originalGetSources('').find(s => s && s.id === id);
+      const source = findSource(id);
       const card = trigger.closest('.item');
       if (!source || !card) continue;
       let controls = card.querySelector('[data-noa-course-only-addon]');
+      if (!supports(source)) {
+        controls?.remove();
+        continue;
+      }
       if (!controls) {
         controls = document.createElement('div');
         controls.setAttribute('data-noa-course-only-addon', '');
@@ -87,7 +95,7 @@
       }
       const button = controls.querySelector('[data-noa-course-only-toggle]');
       const note = controls.querySelector('[data-noa-course-only-note]');
-      const active = isMarked(id);
+      const active = marked.has(id);
       updateLine(button, active ? 'Quitar protección complementaria' : 'Usar solo como material complementario');
       updateLine(note, active
         ? 'Alcance efectivo para generar: course_only, sin códigos oficiales. El análisis original y sus datos no se modifican.'
@@ -121,7 +129,7 @@
     preview(subject) { return engine.getCourseSources(subject).map(source => ({
       id: source.id, title: source.title, effectiveClassification:source.analysis?.overall_classification || null,
       syllabusCodes:[...(source.analysis?.syllabus_links || []).map(link => link.code)],
-      protected: isMarked(source.id)
+      protected: supports(source) && marked.has(source.id)
     })); }
   });
 })();

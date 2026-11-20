@@ -14,13 +14,15 @@ function setup(store = new Map()) {
   const geographical = {id:'geo-1', subject, title:'Geografía 1', content:'# Latitud',analysisStatus:'ready',
     analysis:{overall_classification:'core', syllabus_links:[{code:'2.4.1.1'}],
       concepts:[{name:'Latitud',classification:'core',syllabus_codes:['2.4.1.1']}]}};
-  const sources=[historical,geographical];
+  const physics = {id:'physics-1', subject:'EXCOBA Especialidad · Física', analysisStatus:'ready',
+    analysis:{overall_classification:'core', syllabus_links:[{code:'3.3.1.1'}]}};
+  const sources=[historical,geographical,physics];
   const original = JSON.stringify(sources);
   const api={getCourseSources:(target='')=>sources.filter(x=>!target || x.subject===target)};
   const document={baseURI:'http://localhost/App.N.O.A/index.html',readyState:'loading',addEventListener(){},getElementById(){return null}};
   const storage={getItem:k=>store.get(k)||null,setItem:(k,v)=>{store.set(k,v)}};
   const window={NOA_SOURCE_ENGINE:api};
-  vm.runInNewContext(code, {window,document,localStorage:storage,URL,Promise,Set,JSON,MutationObserver:class{} });
+  vm.runInNewContext(code, {window,document,localStorage:storage,URL,Promise,Set,JSON,structuredClone,MutationObserver:class{} });
   return {window,sources,original,store,api};
 }
 
@@ -37,6 +39,15 @@ test('opt-in does not alter stored analysis or other course materials',()=>{
   assert.equal(view[0].analysis.evaluable_objectives[0].objective,'Describir Paleolítico');
   assert.equal(view[1],x.sources[1]);
   assert.equal(JSON.stringify(x.sources),x.original);
+});
+
+test('editing the effective view cannot mutate the saved analysis',()=>{
+  const x=setup(), add=x.window.NOA_COURSE_ONLY_ADDON_V1;
+  add.setMarked('hist-1a',true);
+  const [view]=x.api.getCourseSources(subject);
+  view.analysis.evaluable_objectives[0].objective='Edited outside the source bank';
+  assert.equal(JSON.stringify(x.sources),x.original);
+  assert.equal(x.api.getCourseSources(subject)[0].analysis.evaluable_objectives[0].objective,'Describir Paleolítico');
 });
 
 test('protection survives reload and is reversible',()=>{
@@ -58,4 +69,26 @@ test('unknown source or blocked storage cannot change classification',()=>{
   x.store.set = ()=>{throw Error('blocked')};
   assert.equal(add.setMarked('hist-1a',true).ok,false);
   assert.equal(add.isMarked('hist-1a'),false);
+});
+
+test('blocked removal preserves a protection that was already saved',()=>{
+  const x=setup(), add=x.window.NOA_COURSE_ONLY_ADDON_V1;
+  assert.equal(add.setMarked('hist-1a',true).ok,true);
+  x.store.set = ()=>{throw Error('blocked')};
+  assert.equal(add.setMarked('hist-1a',false).error,'storage_unavailable');
+  assert.equal(add.isMarked('hist-1a'),true);
+  assert.equal(x.api.getCourseSources(subject)[0].analysis.overall_classification,'course_only');
+  assert.equal(setup(x.store).window.NOA_COURSE_ONLY_ADDON_V1.isMarked('hist-1a'),true);
+});
+
+test('activation and effective view both enforce the source subject even with an old saved mark',()=>{
+  const key='NOA_COURSE_ONLY_ADDON_V1:/App.N.O.A/';
+  const store=new Map([[key, JSON.stringify(['physics-1'])]]);
+  const x=setup(store), add=x.window.NOA_COURSE_ONLY_ADDON_V1;
+  assert.equal(add.setMarked('physics-1',true).error,'unsupported_subject');
+  assert.equal(add.isMarked('physics-1'),false);
+  assert.equal(x.api.getCourseSources('EXCOBA Especialidad · Física')[0],x.sources[2]);
+  assert.equal(add.preview('EXCOBA Especialidad · Física')[0].protected,false);
+  assert.equal(store.get(key),'["physics-1"]');
+  assert.equal(JSON.stringify(x.sources),x.original);
 });
