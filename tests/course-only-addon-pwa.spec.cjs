@@ -49,7 +49,7 @@ test('instalación limpia precachea el complemento y permite cambiar la protecci
   await page.goto('./');
   await waitForControl(page);
   const source = await seedHistory(page);
-  expect(await cacheState(page)).toEqual({ versions: ['v6-101'], precached: true });
+  expect(await cacheState(page)).toEqual({ versions: ['v6-102'], precached: true });
   await context.setOffline(true);
   await page.reload();
   const button = await openHistory(page, source);
@@ -66,7 +66,7 @@ test('instalación limpia precachea el complemento y permite cambiar la protecci
 
 test('actualización de v6-100 precachea el complemento para la siguiente recarga offline', async ({ page, context }) => {
   const currentWorker = readFileSync(resolve(root, 'sw.js'), 'utf8');
-  const previousWorker = currentWorker.replace("'v6-101'", "'v6-100'")
+  const previousWorker = currentWorker.replace("'v6-102'", "'v6-100'")
     .replace("\n  './excoba_addon_course_only.js',\n", '')
     .replace(/cache\.addAll\(ASSETS\.map\(asset =>[\s\S]*?\)\)\)/, 'cache.addAll(ASSETS))');
   const currentShell = readFileSync(resolve(root, 'index.html'), 'utf8');
@@ -103,7 +103,7 @@ test('actualización de v6-100 precachea el complemento para la siguiente recarg
     await page.evaluate(() => caches.open('unrelated-project-cache'));
     upgraded = true;
     await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).update());
-    await expect.poll(() => cacheState(page)).toEqual({ versions: ['v6-101'], precached: true });
+    await expect.poll(() => cacheState(page)).toEqual({ versions: ['v6-102'], precached: true });
     await context.setOffline(true);
     await page.reload();
     const button = await openHistory(page, source);
