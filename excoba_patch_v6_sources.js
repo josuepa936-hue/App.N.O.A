@@ -789,20 +789,17 @@ FORMATO EXACTO:
 
 
   function removeCourseSource(id){
-
     ensureSourceDB();
+    const index = db.courseSources.findIndex(source => source.id === id);
+    if(index === -1) throw new Error('No encontré el apunte');
 
-    db.courseSources =
-      db.courseSources.filter(
-        s => s.id !== id
-      );
-
-    try{
-      save();
-    }catch{}
-
+    const courseSources = db.courseSources.slice();
+    courseSources.splice(index, 1);
+    // Commit to storage first and refresh only the course bank.
+    localStorage.setItem(KEY, JSON.stringify({...db, courseSources}));
+    db.courseSources = courseSources;
+    document.getElementById('saveState').textContent = 'Guardado automático ✓';
     renderCourseSources();
-
   }
 
 
@@ -949,9 +946,10 @@ ${renderSourceAnalysis(s)}
 </button>
 
 <button
+  type="button"
   class="btn"
   style="margin-top:8px"
-  data-remove-course="${s.id}"
+  data-remove-course="${escapeHTML(s.id)}"
 >
   Eliminar
 </button>
@@ -960,6 +958,17 @@ ${renderSourceAnalysis(s)}
 
       `).join('');
 
+    box.querySelectorAll('[data-remove-course]').forEach(button => {
+      button.addEventListener('click', () => {
+        if(!window.confirm('¿Eliminar este apunte del Banco del curso?')) return;
+        try{
+          removeCourseSource(button.dataset.removeCourse);
+          toast('Apunte eliminado.');
+        }catch{
+          toast('No se pudo eliminar el apunte.');
+        }
+      });
+    });
 
 box
   .querySelectorAll(
